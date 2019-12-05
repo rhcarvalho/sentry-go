@@ -153,6 +153,7 @@ func (t *HTTPTransport) Configure(options ClientOptions) {
 	}
 
 	t.start.Do(func() {
+		// TODO: when does this new goroutine terminate?!
 		go t.worker()
 	})
 }
@@ -168,6 +169,7 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 		return
 	}
 
+	// FIXME: do not ignore error?
 	request, _ := http.NewRequest(
 		http.MethodPost,
 		t.dsn.StoreAPIURL().String(),
