@@ -269,6 +269,9 @@ func (client *Client) RecoverWithContext(
 // Flush notifies when all the buffered events have been sent by returning `true`
 // or `false` if timeout was reached. It calls `Flush` method of the configured `Transport`.
 func (client *Client) Flush(timeout time.Duration) bool {
+	if client == nil {
+		return true
+	}
 	return client.Transport.Flush(timeout)
 }
 

@@ -324,13 +324,7 @@ func (hub *Hub) RecoverWithContext(ctx context.Context, err interface{}) *EventI
 
 // Flush calls the method of a same name on currently bound `Client` instance.
 func (hub *Hub) Flush(timeout time.Duration) bool {
-	client := hub.Client()
-
-	if client == nil {
-		return false
-	}
-
-	return client.Flush(timeout)
+	return hub.Client().Flush(timeout)
 }
 
 // HasHubOnContext checks whether `Hub` instance is bound to a given `Context` struct.

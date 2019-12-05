@@ -3,9 +3,11 @@ package sentry
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 	"testing"
+	"time"
 )
 
 func setupHubTest() (*Hub, *Client, *Scope) {
@@ -402,4 +404,36 @@ func TestConcurrentHubClone(t *testing.T) {
 	})
 
 	assertEqual(t, got, want)
+}
+
+func TestFlush(t *testing.T) {
+	var hub Hub
+	t.Errorf("1 Flush() = %v", hub.Flush(0))
+	hub.BindClient(&Client{})
+	hub = *NewHub(nil, nil)
+	t.Errorf("2 Flush() = %v", hub.Flush(0))
+	hub.BindClient(&Client{Transport: &noopTransport{}})
+	t.Errorf("3 Flush() = %v", hub.Flush(0))
+	hub.BindClient(&Client{Transport: &HTTPTransport{}})
+	t.Errorf("4 Flush() = %v", hub.Flush(0))
+	ch := make(chan *http.Request, 10)
+	tr := &HTTPTransport{buffer: ch, client: http.DefaultClient}
+	hub.BindClient(&Client{Transport: tr})
+	for i := 0; i < 10; i++ {
+		r, err := http.NewRequest("", "127.0.0.1", nil)
+		if err != nil {
+			panic(err)
+		}
+		ch <- r
+	}
+	go tr.worker()
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			hub.Flush(time.Millisecond)
+		}()
+	}
+	wg.Wait()
 }
