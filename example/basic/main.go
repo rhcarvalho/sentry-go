@@ -127,7 +127,7 @@ func main() {
 
 			return event
 		},
-		BeforeBreadcrumb: func(breadcrumb *sentry.Breadcrumb, _ *sentry.BreadcrumbHint) *sentry.Breadcrumb {
+		BeforeBreadcrumb: func(breadcrumb *sentry.Breadcrumb, hint *sentry.BreadcrumbHint) *sentry.Breadcrumb {
 			if breadcrumb.Message == "Random breadcrumb 3" {
 				breadcrumb.Message = "Not so random breadcrumb 3"
 			}
