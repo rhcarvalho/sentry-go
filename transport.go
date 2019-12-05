@@ -333,7 +333,7 @@ func (t *HTTPSyncTransport) SendEvent(event *Event) {
 
 // Flush notifies when all the buffered events have been sent by returning `true`
 // or `false` if timeout was reached. No-op for HTTPSyncTransport.
-func (t *HTTPSyncTransport) Flush(_ time.Duration) bool {
+func (t *HTTPSyncTransport) Flush(timeout time.Duration) bool {
 	return true
 }
 
@@ -353,6 +353,6 @@ func (t *noopTransport) SendEvent(event *Event) {
 	Logger.Println("Event dropped due to noopTransport usage.")
 }
 
-func (t *noopTransport) Flush(_ time.Duration) bool {
+func (t *noopTransport) Flush(timeout time.Duration) bool {
 	return true
 }
