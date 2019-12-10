@@ -2,6 +2,7 @@ package sentry
 
 import (
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 )
@@ -151,4 +152,24 @@ func TestRetryAfterDateHeader(t *testing.T) {
 		},
 	}
 	assertEqual(t, retryAfter(now, &r), time.Second*13)
+}
+
+func TestHTTPTransportFlush(t *testing.T) {
+	var tr HTTPTransport
+	ok := tr.Flush(0)
+	if !ok {
+		t.Error("Flush() timed out")
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok := tr.Flush(0)
+			if !ok {
+				t.Error("Flush() timed out")
+			}
+		}()
+	}
+	wg.Wait()
 }
