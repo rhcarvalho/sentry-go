@@ -7,11 +7,13 @@ import (
 	"github.com/getsentry/sentry-go"
 	sentrygin "github.com/getsentry/sentry-go/gin"
 	"github.com/gin-gonic/gin"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func main() {
-	_ = sentry.Init(sentry.ClientOptions{
-		Dsn: "https://363a337c11a64611be4845ad6e24f3ac@sentry.io/297378",
+	err := sentry.Init(sentry.ClientOptions{
+		// Dsn: "https://363a337c11a64611be4845ad6e24f3ac@sentry.io/297378",
 		BeforeSend: func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 			if hint.Context != nil {
 				if req, ok := hint.Context.Value(sentry.RequestContextKey).(*http.Request); ok {
@@ -19,12 +21,15 @@ func main() {
 					fmt.Println(req)
 				}
 			}
-			fmt.Println(event)
+			fmt.Printf("Event:\n%s", cmp.Diff(event, &sentry.Event{}))
 			return event
 		},
 		Debug:            true,
 		AttachStacktrace: true,
 	})
+	if err != nil {
+		panic(err)
+	}
 
 	app := gin.Default()
 
@@ -49,11 +54,14 @@ func main() {
 		ctx.Status(http.StatusOK)
 	})
 
-	app.GET("/foo", func(ctx *gin.Context) {
+	app.POST("/foo", func(ctx *gin.Context) {
 		// sentrygin handler will catch it just fine, and because we attached "someRandomTag"
 		// in the middleware before, it will be sent through as well
 		panic("y tho")
 	})
 
-	_ = app.Run(":3000")
+	err = app.Run(":3000")
+	if err != nil {
+		panic(err)
+	}
 }
