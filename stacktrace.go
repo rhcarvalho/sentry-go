@@ -19,53 +19,88 @@ const unknown string = "unknown"
 
 // Stacktrace holds information about the frames of the stack.
 type Stacktrace struct {
-	Frames        []Frame `json:"frames,omitempty"`
-	FramesOmitted []uint  `json:"frames_omitted,omitempty"`
+	Frames []Frame `json:"frames,omitempty"`
+	// REVIEW: FramesOmitted was added to Protocol version 5 (https://docs.sentry.io/server/changelog/#protocol-version-5)
+	// but is not listed in the Unified API: https://docs.sentry.io/development/sdk-dev/event-payloads/stacktrace/
+	// See also: https://github.com/getsentry/sentry/blob/1f1771d6a1ce2b8e9077637c153be42dd8112a2f/src/sentry/interfaces/stacktrace.py#L370-L468
+	FramesOmitted []uint `json:"frames_omitted,omitempty"`
 }
 
-// NewStacktrace creates a stacktrace using `runtime.Callers`.
+// NewStacktrace creates a Stacktrace with Frames.... and omits frames ....
+// Returns nil when...
+// REVIEW: godoc
 func NewStacktrace() *Stacktrace {
-	pcs := make([]uintptr, 100)
-	n := runtime.Callers(1, pcs)
-
+	// REVIEW: isn't 100 too much?
+	pc := make([]uintptr, 100)
+	const skip = 2 // skip runtime.Callers and NewStacktrace itself
+	n := runtime.Callers(skip, pc)
 	if n == 0 {
 		return nil
 	}
+	pc = pc[:n] // only keep valid pcs
 
-	frames := extractFrames(pcs[:n])
-	frames = filterFrames(frames)
+	return &Stacktrace{
+		Frames: userStackFrames(pc),
+	}
+}
 
-	stacktrace := Stacktrace{
-		Frames: frames,
+// userStackFrames returns Go runtime stack frames relevant for users of
+// sentry-go. It does not include frames internal to sentry-go nor the Go
+// runtime. Following Sentry's Unified API convention, the last frame is the one
+// that called sentry-go.
+func userStackFrames(pc []uintptr) []Frame {
+	frames := runtime.CallersFrames(pc)
+
+	var s []Frame
+	for {
+		frame, more := frames.Next()
+
+		// Skip frames that are internal to the SDK.
+		if strings.HasPrefix(frame.Function, "github.com/getsentry/sentry-go.") {
+			continue
+		}
+
+		// Once a Go runtime frame is reached ignore all following frames as not
+		// being relevant to debug user code. Typically, that means that we stop
+		// at main.main.
+		if strings.HasPrefix(frame.Function, "runtime.") {
+			break
+		}
+
+		s = append(s, NewFrame(frame))
+
+		if !more {
+			break
+		}
 	}
 
-	return &stacktrace
+	// Reverse the slice to match the order expected by the Sentry API.
+	for i := len(s)/2 - 1; i >= 0; i-- {
+		opp := len(s) - 1 - i
+		s[i], s[opp] = s[opp], s[i]
+	}
+	return s
 }
 
 // ExtractStacktrace creates a new `Stacktrace` based on the given `error` object.
+// Returns nil when...
+// REVIEW: godoc
 // TODO: Make it configurable so that anyone can provide their own implementation?
 // Use of reflection allows us to not have a hard dependency on any given package, so we don't have to import it
 func ExtractStacktrace(err error) *Stacktrace {
 	method := extractReflectedStacktraceMethod(err)
-
 	if !method.IsValid() {
 		return nil
 	}
 
-	pcs := extractPcs(method)
-
-	if len(pcs) == 0 {
+	pc := extractPcs(method)
+	if len(pc) == 0 {
 		return nil
 	}
 
-	frames := extractFrames(pcs)
-	frames = filterFrames(frames)
-
-	stacktrace := Stacktrace{
-		Frames: frames,
+	return &Stacktrace{
+		Frames: userStackFrames(pc),
 	}
-
-	return &stacktrace
 }
 
 func extractReflectedStacktraceMethod(err error) reflect.Value {
@@ -129,9 +164,11 @@ func extractPcs(method reflect.Value) []uintptr {
 
 // https://docs.sentry.io/development/sdk-dev/event-payloads/stacktrace/
 type Frame struct {
-	Function    string                 `json:"function,omitempty"`
-	Symbol      string                 `json:"symbol,omitempty"`
-	Module      string                 `json:"module,omitempty"`
+	Function string `json:"function,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+	Module   string `json:"module,omitempty"`
+	// REVIEW: Why do we use Module instead of Package? In Go, those two have a
+	// very specific meaning. Package is never set.
 	Package     string                 `json:"package,omitempty"`
 	Filename    string                 `json:"filename,omitempty"`
 	AbsPath     string                 `json:"abs_path,omitempty"`
@@ -154,11 +191,11 @@ func NewFrame(f runtime.Frame) Frame {
 	if filename != "" {
 		filename = filepath.Base(filename)
 	} else {
-		filename = unknown
+		filename = unknown // REVIEW: why "unknown" instead of the empty string?
 	}
 
 	if abspath == "" {
-		abspath = unknown
+		abspath = unknown // REVIEW: why "unknown" instead of the empty string?
 	}
 
 	if function != "" {
@@ -178,47 +215,12 @@ func NewFrame(f runtime.Frame) Frame {
 	return frame
 }
 
-func extractFrames(pcs []uintptr) []Frame {
-	var frames []Frame
-	callersFrames := runtime.CallersFrames(pcs)
-
-	for {
-		callerFrame, more := callersFrames.Next()
-
-		frames = append([]Frame{
-			NewFrame(callerFrame),
-		}, frames...)
-
-		if !more {
-			break
-		}
-	}
-
-	return frames
-}
-
-func filterFrames(frames []Frame) []Frame {
-	filteredFrames := make([]Frame, 0, len(frames))
-
-	for _, frame := range frames {
-		// go runtime frames
-		if frame.Module == "runtime" {
-			continue
-		}
-		// sentry internal frames
-		if frame.Module == "github.com/getsentry/sentry-go" {
-			continue
-		}
-		filteredFrames = append(filteredFrames, frame)
-	}
-
-	return filteredFrames
-}
-
+// REVIEW: what does the return value of isInAppFrame mean?
+// FIXME: replace if condition...return bool with return !condition
 func isInAppFrame(frame Frame) bool {
 	if strings.HasPrefix(frame.AbsPath, build.Default.GOROOT) ||
 		strings.Contains(frame.Module, "vendor") ||
-		strings.Contains(frame.Module, "third_party") {
+		strings.Contains(frame.Module, "third_party") { // REVIEW: why is "third_party" special?
 		return false
 	}
 
@@ -227,15 +229,20 @@ func isInAppFrame(frame Frame) bool {
 
 // Transform `runtime/debug.*T·ptrmethod` into `{ module: runtime/debug, function: *T.ptrmethod }`
 func deconstructFunctionName(name string) (module string, function string) {
+	// TODO: handle anonymous functions like:
+	// github.com/getsentry/sentry-go_test.TestNewStacktrace.func1
 	if idx := strings.LastIndex(name, "."); idx != -1 {
 		module = name[:idx]
 		function = name[idx+1:]
 	}
+	// REVIEW: when do we actually need to replace "·"?
+	// Why do we only split on "." above?
 	function = strings.Replace(function, "·", ".", -1)
 	return module, function
 }
 
 func callerFunctionName() string {
+	// REVIEW
 	pcs := make([]uintptr, 1)
 	runtime.Callers(3, pcs)
 	callersFrames := runtime.CallersFrames(pcs)

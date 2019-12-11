@@ -279,6 +279,7 @@ func (client *Client) eventFromMessage(message string, level Level) *Event {
 
 	if client.Options().AttachStacktrace {
 		event.Threads = []Thread{{
+			// NOTE: eventFromMessage should probably not be in the stack. First frame should be user's function that called a sentry function.
 			Stacktrace: NewStacktrace(),
 			Crashed:    false,
 			Current:    true,
