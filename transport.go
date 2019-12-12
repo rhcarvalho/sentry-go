@@ -316,7 +316,7 @@ type HTTPSyncTransport struct {
 	dsn           *Dsn
 	client        *http.Client
 	transport     *http.Transport
-	disabledUntil time.Time
+	disabledUntil time.Time // FIXME: this can be influenced by system clock changes. Alternative: evaluate use of time.After.
 
 	// HTTP Client request timeout. Defaults to 30 seconds.
 	Timeout time.Duration
