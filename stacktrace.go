@@ -202,7 +202,7 @@ func filterFrames(frames []Frame) []Frame {
 
 	for _, frame := range frames {
 		// go runtime frames
-		if frame.Module == "runtime" || frame.Module == "testing" {
+		if frame.Module == "runtime" {
 			continue
 		}
 		// sentry internal frames

@@ -198,21 +198,19 @@ func TestExtractStacktrace(t *testing.T) {
 func compareStacktrace(t *testing.T, got, want *sentry.Stacktrace) {
 	t.Helper()
 
-	if len(got.Frames) == 0 {
-		t.Fatal("got no frames")
-	}
-	// Skip anonymous function passed to t.Run.
-	got.Frames = got.Frames[1:]
-
 	if diff := stacktraceDiff(want, got); diff != "" {
 		t.Fatalf("Stacktrace mismatch (-want +got):\n%s", diff)
 	}
 
 	// Because stacktraceDiff ignores Frame.AbsPath, sanity check that the
-	// values we got are actually absolute paths pointing to this test file.
+	// values we got are actually absolute paths. Additionally, the AbsPath for
+	// frames that are not ignored should point to this test file.
 	for _, frame := range got.Frames {
 		if !filepath.IsAbs(frame.AbsPath) {
 			t.Errorf("Frame{Function: %q}.AbsPath = %q, want absolute path", frame.Function, frame.AbsPath)
+		}
+		if ignoreFrame(frame) {
+			continue
 		}
 		if filepath.Base(frame.AbsPath) != "stacktrace_external_test.go" {
 			t.Errorf(`Frame{Function: %q}.AbsPath = %q, want ".../stacktrace_external_test.go"`, frame.Function, frame.AbsPath)
@@ -223,6 +221,15 @@ func compareStacktrace(t *testing.T, got, want *sentry.Stacktrace) {
 func stacktraceDiff(x, y *sentry.Stacktrace) string {
 	return cmp.Diff(
 		x, y,
+		cmpopts.IgnoreSliceElements(ignoreFrame),
 		cmpopts.IgnoreFields(sentry.Frame{}, "AbsPath"),
 	)
+}
+
+func ignoreFrame(frame sentry.Frame) bool {
+	// isTestFunction := frame.Module == "github.com/getsentry/sentry-go_test" &&
+	// 	strings.HasPrefix(frame.Function, "Test")
+	// FIXME: splitting of Module (Package?) and Function name doesn't handle anonymous functions
+	isTestFunction := frame.Function == "func1"
+	return frame.Module == "testing" || isTestFunction
 }
