@@ -34,7 +34,6 @@ before_install:
 
 script:
   - golangci-lint run --new-from-rev=$(git merge-base origin/master HEAD)
-  - go build
   - go test
   - go test -race
 
