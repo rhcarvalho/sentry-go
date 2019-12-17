@@ -11,7 +11,7 @@ go get github.com/getsentry/raven-go
 sentry-go
 
 ```go
-go get github.com/getsentry/sentry-go@v0.0.1
+go get github.com/getsentry/sentry-go
 ```
 
 ## Configuration
@@ -19,29 +19,35 @@ go get github.com/getsentry/sentry-go@v0.0.1
 raven-go
 
 ```go
+package main
+
 import "github.com/getsentry/raven-go"
 
 func main() {
-    raven.SetDSN("https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1")
+	raven.SetDSN("https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1")
 }
 ```
 
 sentry-go
 
 ```go
+package main
+
 import (
-    "fmt"
-    "github.com/getsentry/sentry-go"
+	"fmt"
+	"os"
+
+	"github.com/getsentry/sentry-go"
 )
 
 func main() {
-    err := sentry.Init(sentry.ClientOptions{
-        Dsn: "https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1",
-    })
-
-    if err != nil {
-        fmt.Printf("Sentry initialization failed: %v\n", err)
-    }
+	err := sentry.Init(sentry.ClientOptions{
+		Dsn: "https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1",
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentry.Init: %v\n", err)
+		os.Exit(1)
+	}
 }
 ```
 
@@ -62,14 +68,14 @@ sentry-go
 
 ```go
 sentry.Init(sentry.ClientOptions{
-    Dsn: "https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1",
-    DebugWriter: os.Stderr,
-    Debug: true,
-    Environment: "environment",
-    Release: "release",
-    SampleRate: 0.5,
-    // IgnoreErrors: TBD,
-    // IncludePaths: TBD
+	Dsn:         "https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1",
+	DebugWriter: os.Stderr,
+	Debug:       true,
+	Environment: "environment",
+	Release:     "release",
+	SampleRate:  0.5,
+	// IgnoreErrors: TBD,
+	// IncludePaths: TBD,
 })
 ```
 
@@ -83,24 +89,26 @@ By default, TLS uses the host's root CA set. If you don't have `ca-certificates`
 package main
 
 import (
-    "log"
+	"log"
 
-    "github.com/certifi/gocertifi"
-    "github.com/getsentry/sentry-go"
+	"github.com/certifi/gocertifi"
+	"github.com/getsentry/sentry-go"
 )
 
-sentryClientOptions := sentry.ClientOptions{
-    Dsn: "https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1",
-}
+func main() {
+	sentryClientOptions := sentry.ClientOptions{
+		Dsn: "https://16427b2f210046b585ee51fd8a1ac54f@sentry.io/1",
+	}
 
-rootCAs, err := gocertifi.CACerts()
-if err != nil {
-    log.Println("Couldn't load CA Certificates: %v\n", err)
-} else {
-    sentryClientOptions.CaCerts = rootCAs
-}
+	rootCAs, err := gocertifi.CACerts()
+	if err != nil {
+		log.Println("Couldn't load CA Certificates: %v\n", err)
+	} else {
+		sentryClientOptions.CaCerts = rootCAs
+	}
 
-sentry.Init(sentryClientOptions)
+	sentry.Init(sentryClientOptions)
+}
 ```
 
 ## Usage
@@ -112,7 +120,7 @@ raven-go
 ```go
 f, err := os.Open("filename.ext")
 if err != nil {
-    raven.CaptureError(err, nil)
+	raven.CaptureError(err, nil)
 }
 ```
 
@@ -121,7 +129,7 @@ sentry-go
 ```go
 f, err := os.Open("filename.ext")
 if err != nil {
-    sentry.CaptureException(err)
+	sentry.CaptureException(err)
 }
 ```
 
@@ -131,7 +139,7 @@ raven-go
 
 ```go
 raven.CapturePanic(func() {
-    // do all of the scary things here
+	// do all of the scary things here
 }, nil)
 ```
 
@@ -139,8 +147,8 @@ sentry-go
 
 ```go
 func() {
-    defer sentry.Recover()
-    // do all of the scary things here
+	defer sentry.Recover()
+	// do all of the scary things here
 }()
 ```
 
@@ -164,11 +172,11 @@ raven-go
 
 ```go
 packet := &raven.Packet{
-    Message: "Hand-crafted event",
-    Extra: &raven.Extra{
-        "runtime.Version": runtime.Version(),
-        "runtime.NumCPU": runtime.NumCPU(),
-    },
+	Message: "Hand-crafted event",
+	Extra: &raven.Extra{
+		"runtime.Version": runtime.Version(),
+		"runtime.NumCPU":  runtime.NumCPU(),
+	},
 }
 raven.Capture(packet)
 ```
@@ -176,7 +184,7 @@ raven.Capture(packet)
 sentry-go
 
 ```go
-event := &sentry.NewEvent()
+event := sentry.NewEvent()
 event.Message = "Hand-crafted event"
 event.Extra["runtime.Version"] = runtime.Version()
 event.Extra["runtime.NumCPU"] = runtime.NumCPU()
@@ -216,9 +224,9 @@ sentry-go
 sentry.CaptureMessage("Something bad happened and I would like to know about that")
 
 if sentry.Flush(time.Second * 2) {
-    // event delivered
+	// event delivered
 } else {
-    // timeout reached
+	// timeout reached
 }
 ```
 
@@ -230,8 +238,8 @@ raven-go
 
 ```go
 raven.CaptureError(err, map[string]string{"browser": "Firefox"}, &raven.Http{
-    Method: "GET",
-    URL: "https://example.com/raven-go"
+	Method: "GET",
+	URL:    "https://example.com/raven-go",
 })
 ```
 
@@ -239,12 +247,12 @@ sentry-go
 
 ```go
 sentry.WithScope(func(scope *sentry.Scope) {
-    scope.SetTag("browser", "Firefox")
-    scope.SetContext("Request", map[string]string{
-        "Method": "GET",
-        "URL": "https://example.com/raven-go",
-    })
-    sentry.CaptureException(err)
+	scope.SetTag("browser", "Firefox")
+	scope.SetContext("Request", map[string]string{
+		"Method": "GET",
+		"URL":    "https://example.com/raven-go",
+	})
+	sentry.CaptureException(err)
 })
 ```
 
@@ -256,8 +264,8 @@ raven-go
 
 ```go
 raven.SetHttpContext(&raven.Http{
-    Method: "GET",
-    URL: "https://example.com/raven-go",
+	Method: "GET",
+	URL:    "https://example.com/raven-go",
 })
 ```
 
@@ -265,10 +273,10 @@ sentry-go
 
 ```go
 sentry.ConfigureScope(func(scope *sentry.Scope) {
-    scope.SetContext("Request", map[string]string{
-        "Method": "GET",
-        "URL": "https://example.com/raven-go",
-    })
+	scope.SetContext("Request", map[string]string{
+		"Method": "GET",
+		"URL":    "https://example.com/raven-go",
+	})
 })
 ```
 
@@ -285,7 +293,7 @@ sentry-go
 
 ```go
 sentry.ConfigureScope(func(scope *sentry.Scope) {
-    scope.SetTags(map[string]string{"day": "Friday", "sport": "Weightlifting"})
+	scope.SetTags(map[string]string{"day": "Friday", "sport": "Weightlifting"})
 })
 ```
 
@@ -295,10 +303,10 @@ raven-go
 
 ```go
 raven.SetUserContext(&raven.User{
-    ID: "1337",
-    Username: "kamilogorek",
-    Email: "kamil@sentry.io",
-    IP: "127.0.0.1",
+	ID:       "1337",
+	Username: "kamilogorek",
+	Email:    "kamil@sentry.io",
+	IP:       "127.0.0.1",
 })
 ```
 
@@ -306,12 +314,12 @@ sentry-go
 
 ```go
 sentry.ConfigureScope(func(scope *sentry.Scope) {
-    scope.SetUser(sentry.User{
-        ID: "1337",
-        Username: "kamilogorek",
-        Email: "kamil@sentry.io",
-        IPAddress: "127.0.0.1",
-    })
+	scope.SetUser(sentry.User{
+		ID:        "1337",
+		Username:  "kamilogorek",
+		Email:     "kamil@sentry.io",
+		IPAddress: "127.0.0.1",
+	})
 })
 ```
 
@@ -327,7 +335,7 @@ sentry-go
 
 ```go
 sentry.ConfigureScope(func(scope *sentry.Scope) {
-    scope.Clear()
+	scope.Clear()
 })
 ```
 
@@ -339,8 +347,8 @@ raven-go
 path := "filename.ext"
 f, err := os.Open(path)
 if err != nil {
-    err = raven.WrapWithExtra(err, map[string]string{"path": path, "cwd": os.Getwd()}
-    raven.CaptureError(err, nil)
+	err = raven.WrapWithExtra(err, map[string]string{"path": path, "cwd": os.Getwd()})
+	raven.CaptureError(err, nil)
 }
 ```
 
@@ -351,10 +359,11 @@ sentry-go
 path := "filename.ext"
 f, err := os.Open(path)
 if err != nil {
-    sentry.WithScope(func(scope *sentry.Scope) {
-        sentry.SetExtras(map[string]interface{}{"path": path, "cwd": os.Getwd())
-        sentry.CaptureException(err)
-    })
+	sentry.WithScope(func(scope *sentry.Scope) {
+		wd, _ := os.Getwd()
+		sentry.SetExtras(map[string]interface{}{"path": path, "cwd": wd})
+		sentry.CaptureException(err)
+	})
 }
 ```
 
@@ -365,7 +374,7 @@ if err != nil {
 raven-go
 
 ```go
-mux := http.NewServeMux
+mux := http.NewServeMux()
 http.Handle("/", raven.Recoverer(mux))
 
 // or
@@ -378,8 +387,8 @@ sentry-go
 
 ```go
 sentryHandler := sentryhttp.New(sentryhttp.Options{
-    Repanic: false,
-    WaitForDelivery: true,
+	Repanic:         false,
+	WaitForDelivery: true,
 })
 
 mux := http.NewServeMux
