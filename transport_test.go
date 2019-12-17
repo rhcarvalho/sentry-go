@@ -181,10 +181,12 @@ func TestHTTPTransportFlush(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
+		i := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 2; i++ {
+			for j := 0; j < 2; j++ {
+				t.Logf("tr.SendEvent #%d from goroutine #%d", j, i)
 				tr.SendEvent(NewEvent())
 				ok := tr.Flush(100 * time.Millisecond)
 				if !ok {
