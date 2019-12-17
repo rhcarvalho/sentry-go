@@ -153,7 +153,10 @@ func (dsn Dsn) StoreAPIURL() *url.URL {
 		rawURL += dsn.path
 	}
 	rawURL += fmt.Sprintf("/api/%d/store/", dsn.projectID)
-	parsedURL, _ := url.Parse(rawURL)
+	parsedURL, err := url.Parse(rawURL) // FIXME: do not ignore error
+	if err != nil {
+		panic(err)
+	}
 	return parsedURL
 }
 

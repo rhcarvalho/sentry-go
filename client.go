@@ -109,7 +109,7 @@ func NewClient(options ClientOptions) (*Client, error) {
 		if debugWriter == nil {
 			debugWriter = os.Stdout
 		}
-		Logger.SetOutput(debugWriter)
+		Logger.SetOutput(debugWriter) // FIXME: Logger is global -- calling NewClient not only returns a new *Client, but also changes global state -- affects all clients / the whole SDK.
 	}
 
 	if options.Dsn == "" {

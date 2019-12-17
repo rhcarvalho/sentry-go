@@ -17,7 +17,7 @@ const defaultTimeout = time.Second * 30
 
 // Transport is used by the `Client` to deliver events to remote server.
 type Transport interface {
-	Flush(timeout time.Duration) bool
+	Flush(timeout time.Duration) bool // REVIEW: what does timeout=0 mean?
 	Configure(options ClientOptions)
 	SendEvent(event *Event)
 }
@@ -115,7 +115,7 @@ type HTTPTransport struct {
 }
 
 // NewHTTPTransport returns a new pre-configured instance of HTTPTransport
-func NewHTTPTransport() *HTTPTransport {
+func NewHTTPTransport() *HTTPTransport { // REVIEW: Effective Go: maybe this should return the interface? Maybe this should not reinvent http.Transport?
 	transport := HTTPTransport{
 		BufferSize: defaultBufferSize,
 		Timeout:    defaultTimeout,
@@ -125,7 +125,7 @@ func NewHTTPTransport() *HTTPTransport {
 
 // Configure is called by the `Client` itself, providing it it's own `ClientOptions`.
 func (t *HTTPTransport) Configure(options ClientOptions) {
-	dsn, err := NewDsn(options.Dsn)
+	dsn, err := NewDsn(options.Dsn) // FIXME: we should only parse a DSN once
 	if err != nil {
 		Logger.Printf("%v\n", err)
 		return
@@ -192,6 +192,13 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 			t.dsn.projectID,
 		)
 	default:
+		// REVIEW: this seems not to be a great default behavior: Only
+		// 30 slots... in a busy HTTP server taking in concurrent
+		// requests (Go can do way more than 30 concurrent requests...),
+		// potentially many errors get dropped behind the user's back.
+		// Since each request runs in a separate goroutine, perhaps
+		// blocking for at most d duration (can be controlled with a
+		// Context) on send event would be a better API.
 		t.wg.Done()
 		Logger.Println("Event dropped due to transport buffer being full.")
 		// worker would block, drop the packet
