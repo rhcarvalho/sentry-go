@@ -35,43 +35,92 @@ $ go get github.com/getsentry/sentry-go
 If you are already using [Go Modules](https://blog.golang.org/using-go-modules),
 the command above will download the latest tagged release of the SDK.
 
-## Configuration
-
-To use `sentry-go`, you’ll need to import the `sentry-go` package and initialize it with the client options that will include your DSN. If you specify the `SENTRY_DSN` environment variable, you can omit this value from options and it will be picked up automatically for you. The release and environment can also be specified in the environment variables `SENTRY_RELEASE` and `SENTRY_ENVIRONMENT` respectively.
-
-More on this in [Configuration](https://docs.sentry.io/platforms/go/config/) section.
-
 ## Usage
 
-By default, Sentry Go SDK uses asynchronous transport, which in the code example below requires an explicit awaiting for event delivery to be finished using `sentry.Flush` method. It is necessary, because otherwise the program would not wait for the async HTTP calls to return a response, and exit the process immediately when it reached the end of the `main` function. It would not be required inside a running goroutine or if you would use `HTTPSyncTransport`, which you can read about in `Transports` section.
+A typical usage of the SDK by example:
 
 ```go
 package main
 
 import (
-    "fmt"
-    "os"
-    "time"
+	"fmt"
+	"os"
+	"time"
 
-    "github.com/getsentry/sentry-go"
+	"github.com/getsentry/sentry-go"
 )
 
 func main() {
-  err := sentry.Init(sentry.ClientOptions{
-    Dsn: "___DSN___",
-  })
+	err := sentry.Init(sentry.ClientOptions{
+		// Either set your DSN here or set the environment variable SENTRY_DSN
+		// and omit this field altogether.
+		Dsn: "",
+		// Set Debug to true if you want the SDK to output debug messages. Can
+		// be useful when you're getting started.
+		//Debug: true,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sentry.Init: %v\n", err)
+		os.Exit(1)
+	}
+	// Wait until in-flight errors are reported to Sentry before the program
+	// exists.
+	defer func() {
+		const timeout = 10 * time.Second
+		ok := sentry.Flush(timeout)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "sentry.Flush: timed out after %v, some events were not sent\n", timeout)
+		}
+	}()
 
-  if err != nil {
-    fmt.Printf("Sentry initialization failed: %v\n", err)
-  }
-  
-  f, err := os.Open("filename.ext")
-  if err != nil {
-    sentry.CaptureException(err)
-    sentry.Flush(time.Second * 5)
-  }
+	_, err = os.Open("unicorns.txt")
+	if err != nil {
+		id := "unknown"
+		eventID := sentry.CaptureException(err)
+		if eventID != nil {
+			id = string(*eventID)
+		}
+		fmt.Fprintf(os.Stderr, "Could not open file: %v\nError reported to Sentry with ID = %v\n", err, id)
+	}
 }
 ```
+
+Step-by-step:
+
+1. To use `sentry-go`, import `github.com/getsentry/sentry-go` and initialize the
+package with options.
+
+    The most important option is the DSN. It can be set either in code
+    (`sentry.ClientOptions.Dsn`) or through the environment variable `SENTRY_DSN`.
+
+    If the DSN is not set, the SDK is effectively disabled and will not send any
+    events to Sentry.
+
+    Other optional environment variables that can we used to configure the SDK
+    include `SENTRY_RELEASE` and `SENTRY_ENVIRONMENT`. More on this in the
+    [Configuration](https://docs.sentry.io/platforms/go/config/) section of the
+    official docs.
+
+2. By default, the Sentry Go SDK uses an asynchronous HTTP transport. That means
+that capturing errors, messages and events does not block the current goroutine.
+Network communication is done in a separate goroutine.
+
+    As demonstrated in the example above, a call to `sentry.Flush` right before
+    the program terminates allows for waiting for events to be delivered to
+    Sentry before the process ends. When using the default transport and without
+    a call to `Flush` the program process would exit immediately when it reaches
+    the end of the `main` function, potentially dropping in-flight events.
+
+    If you would like to change the default behavior and use a synchronous
+    transport instead, see the
+    [Transports](https://docs.sentry.io/platforms/go/transports) section of the
+    official docs. When the `HTTPSyncTransport` is used, `sentry.Flush` is a
+    no-op.
+
+3. Report errors with `sentry.CaptureException`.
+
+The SDK also supports integrations that make reporting errors a piece of Gopher
+cake when you're building specific types of Go programs.
 
 For more detailed information about how to get the most out of `sentry-go` there is additional documentation available:
 
