@@ -213,6 +213,7 @@ sentry.Init(sentry.ClientOptions{
 ```
 
 ### Awaiting the response (not recommended)
+//REVIEW: why not recommended? Not recommended in raven-go or sentry-go or both?!
 
 ```go
 raven.CaptureMessageAndWait("Something bad happened and I would like to know about that")
@@ -228,6 +229,7 @@ if sentry.Flush(time.Second * 2) {
 } else {
 	// timeout reached
 }
+//REVIEW: this doesn't do the same as in raven.CaptureMessageAndWait -- Flush waits for arbitrary events. It may wait for longer than the event that was sent in the line above, and it may wait for up to a timeout and still the event was not sent.
 ```
 
 ## Context
