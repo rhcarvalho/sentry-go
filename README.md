@@ -32,11 +32,8 @@ We verify this package against N-2 recent versions of Go compiler. As of Septemb
 $ go get github.com/getsentry/sentry-go
 ```
 
-Or, if you are already using Go Modules, specify a version number as well:
-
-```bash
-$ go get github.com/getsentry/sentry-go@v0.3.0
-```
+If you are already using [Go Modules](https://blog.golang.org/using-go-modules),
+the command above will download the latest tagged release of the SDK.
 
 ## Configuration
 
