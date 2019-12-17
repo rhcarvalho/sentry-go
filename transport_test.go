@@ -1,7 +1,11 @@
 package sentry
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -151,4 +155,45 @@ func TestRetryAfterDateHeader(t *testing.T) {
 		},
 	}
 	assertEqual(t, retryAfter(now, &r), time.Second*13)
+}
+
+type testWriter testing.T
+
+func (t *testWriter) Write(p []byte) (int, error) {
+	t.Logf("%s", p)
+	return len(p), nil
+}
+
+func TestHTTPTransportFlush(t *testing.T) {
+	var counter uint64
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Logf("[SERVER] received event: #%d", atomic.AddUint64(&counter, 1))
+	}))
+	defer ts.Close()
+
+	Logger.SetOutput((*testWriter)(t))
+
+	tr := NewHTTPTransport()
+	tr.Configure(ClientOptions{
+		Dsn:        fmt.Sprintf("https://user@%s/42", ts.Listener.Addr()),
+		HTTPClient: ts.Client(),
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 2; j++ {
+				t.Logf("tr.SendEvent #%d from goroutine #%d", j, i)
+				tr.SendEvent(NewEvent())
+				ok := tr.Flush(100 * time.Millisecond)
+				if !ok {
+					t.Error("Flush() timed out")
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
