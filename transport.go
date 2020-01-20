@@ -106,7 +106,7 @@ type HTTPTransport struct {
 	wg             sync.WaitGroup // counter of buffered requests
 	flushSemaphore chan struct{}  // limit concurrent calls to Flush
 
-	disabledUntil time.Time
+	disabledUntil time.Time // FIXME: data race
 
 	start sync.Once
 
@@ -195,7 +195,6 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 	default:
 		t.wg.Done()
 		Logger.Println("Event dropped due to transport buffer being full.")
-		// worker would block, drop the packet
 	}
 }
 
