@@ -102,10 +102,12 @@ type HTTPTransport struct {
 	client    *http.Client
 	transport *http.Transport
 
-	buffer        chan *http.Request
+	buffer         chan *http.Request
+	wg             sync.WaitGroup // counter of buffered requests
+	flushSemaphore chan struct{}  // limit concurrent calls to Flush
+
 	disabledUntil time.Time
 
-	wg    sync.WaitGroup
 	start sync.Once
 
 	// Size of the transport buffer. Defaults to 30.
@@ -130,9 +132,10 @@ func (t *HTTPTransport) Configure(options ClientOptions) {
 		Logger.Printf("%v\n", err)
 		return
 	}
-
 	t.dsn = dsn
+
 	t.buffer = make(chan *http.Request, t.BufferSize)
+	t.flushSemaphore = make(chan struct{}, 1)
 
 	if options.HTTPTransport != nil {
 		t.transport = options.HTTPTransport
@@ -202,8 +205,10 @@ func (t *HTTPTransport) Flush(timeout time.Duration) bool {
 	c := make(chan struct{})
 
 	go func() {
+		t.flushSemaphore <- struct{}{}
 		t.wg.Wait()
 		close(c)
+		<-t.flushSemaphore
 	}()
 
 	select {
