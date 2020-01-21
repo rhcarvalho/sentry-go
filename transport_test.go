@@ -208,3 +208,87 @@ func TestHTTPTransportFlush(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func BenchmarkHTTPTransport(b *testing.B) {
+	var counter uint64
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		atomic.AddUint64(&counter, 1)
+	}))
+	defer ts.Close()
+
+	tr := NewHTTPTransport()
+	tr.Configure(ClientOptions{
+		Dsn:        fmt.Sprintf("https://user@%s/42", ts.Listener.Addr()),
+		HTTPClient: ts.Client(),
+	})
+
+	e := NewEvent()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i > 0 && i%tr.BufferSize == 0 {
+			tr.Flush(3000 * time.Millisecond)
+		}
+		tr.SendEvent(e)
+	}
+	ok := tr.Flush(2000 * time.Millisecond)
+	if !ok {
+		b.Error("Flush() timed out")
+	}
+	if counter != uint64(b.N) {
+		b.Errorf("counter = %d, want %d", counter, b.N)
+	}
+}
+func BenchmarkHTTPTransportNoFlush(b *testing.B) {
+	var counter uint64
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		atomic.AddUint64(&counter, 1)
+	}))
+	defer ts.Close()
+
+	tr := NewHTTPTransport()
+	tr.Configure(ClientOptions{
+		Dsn:        fmt.Sprintf("https://user@%s/42", ts.Listener.Addr()),
+		HTTPClient: ts.Client(),
+	})
+
+	e := NewEvent()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tr.SendEvent(e)
+	}
+	b.StopTimer()
+	tr.Flush(time.Second)
+	b.Logf("counter = %d, b.N = %d", counter, b.N)
+}
+func BenchmarkHTTPSyncTransport(b *testing.B) {
+	var counter uint64
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		atomic.AddUint64(&counter, 1)
+	}))
+	defer ts.Close()
+
+	tr := NewHTTPSyncTransport()
+	tr.Configure(ClientOptions{
+		Dsn:        fmt.Sprintf("https://user@%s/42", ts.Listener.Addr()),
+		HTTPClient: ts.Client(),
+	})
+
+	e := NewEvent()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tr.SendEvent(e)
+	}
+	ok := tr.Flush(200 * time.Millisecond)
+	if !ok {
+		b.Error("Flush() timed out")
+	}
+	if counter != uint64(b.N) {
+		b.Errorf("counter = %d, want %d", counter, b.N)
+	}
+}
