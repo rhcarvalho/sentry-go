@@ -97,8 +97,9 @@ func getRequestBodyFromEvent(event *Event) []byte {
 // ================================
 
 type buffer struct {
-	ch   chan *http.Request // work items
-	done chan struct{}      // closed to signal completion of all items in ch
+	ch      chan *http.Request // work items
+	started chan struct{}      // closed to signal items in ch started to be worked on
+	done    chan struct{}      // closed to signal completion of all items in ch
 }
 
 // HTTPTransport is a default implementation of `Transport` interface used by `Client`.
@@ -139,8 +140,9 @@ func (t *HTTPTransport) Configure(options ClientOptions) {
 
 	t.buffer = make(chan buffer, 1)
 	t.buffer <- buffer{
-		ch:   make(chan *http.Request, t.BufferSize),
-		done: make(chan struct{}),
+		ch:      make(chan *http.Request, t.BufferSize),
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 
 	if options.HTTPTransport != nil {
@@ -211,16 +213,27 @@ func (t *HTTPTransport) Flush(timeout time.Duration) bool {
 	toolate := time.After(timeout)
 
 	var buf buffer
-	select {
-	case buf = <-t.buffer:
-	case <-toolate:
-		goto fail
+
+	for {
+		select {
+		case buf = <-t.buffer:
+			select {
+			case <-buf.started:
+				goto started
+			default:
+				t.buffer <- buf
+			}
+		case <-toolate:
+			goto fail
+		}
 	}
 
+started:
 	close(buf.ch)
 	t.buffer <- buffer{
-		ch:   make(chan *http.Request, t.BufferSize),
-		done: make(chan struct{}),
+		ch:      make(chan *http.Request, t.BufferSize),
+		started: make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 
 	select {
@@ -241,6 +254,7 @@ func (t *HTTPTransport) worker() {
 	for buf := range t.buffer {
 		i++
 		Logger.Printf("Iteration #%d", i)
+		close(buf.started)
 		t.buffer <- buf
 		for request := range buf.ch {
 			if time.Now().Before(t.disabledUntil) {
