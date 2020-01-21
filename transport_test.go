@@ -1,6 +1,7 @@
 package sentry
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -167,7 +168,15 @@ func (t *testWriter) Write(p []byte) (int, error) {
 func TestHTTPTransportFlush(t *testing.T) {
 	var counter uint64
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Logf("[SERVER] received event: #%d", atomic.AddUint64(&counter, 1))
+		dec := json.NewDecoder(r.Body)
+		var e struct {
+			EventID string `json:"event_id"`
+		}
+		err := dec.Decode(&e)
+		if err != nil {
+			panic(err)
+		}
+		t.Logf("{%.4s} [SERVER] received event: #%d", e.EventID, atomic.AddUint64(&counter, 1))
 	}))
 	defer ts.Close()
 
@@ -186,11 +195,13 @@ func TestHTTPTransportFlush(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 2; j++ {
-				t.Logf("tr.SendEvent #%d from goroutine #%d", j, i)
-				tr.SendEvent(NewEvent())
-				ok := tr.Flush(100 * time.Millisecond)
+				e := NewEvent()
+				e.EventID = EventID(uuid())
+				t.Logf("{%.4s} tr.SendEvent #%d from goroutine #%d", e.EventID, j, i)
+				tr.SendEvent(e)
+				ok := tr.Flush(200 * time.Millisecond)
 				if !ok {
-					t.Error("Flush() timed out")
+					t.Errorf("{%.4s} Flush() timed out", e.EventID)
 				}
 			}
 		}()

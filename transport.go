@@ -96,15 +96,18 @@ func getRequestBodyFromEvent(event *Event) []byte {
 // HTTPTransport
 // ================================
 
+type buffer struct {
+	ch   chan *http.Request // work items
+	done chan struct{}      // closed to signal completion of all items in ch
+}
+
 // HTTPTransport is a default implementation of `Transport` interface used by `Client`.
 type HTTPTransport struct {
 	dsn       *Dsn
 	client    *http.Client
 	transport *http.Transport
 
-	buffer         chan *http.Request
-	wg             sync.WaitGroup // counter of buffered requests
-	flushSemaphore chan struct{}  // limit concurrent calls to Flush
+	buffer chan buffer
 
 	disabledUntil time.Time // FIXME: data race
 
@@ -134,8 +137,11 @@ func (t *HTTPTransport) Configure(options ClientOptions) {
 	}
 	t.dsn = dsn
 
-	t.buffer = make(chan *http.Request, t.BufferSize)
-	t.flushSemaphore = make(chan struct{}, 1)
+	t.buffer = make(chan buffer, 1)
+	t.buffer <- buffer{
+		ch:   make(chan *http.Request, t.BufferSize),
+		done: make(chan struct{}),
+	}
 
 	if options.HTTPTransport != nil {
 		t.transport = options.HTTPTransport
@@ -181,10 +187,10 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 		request.Header.Set(headerKey, headerValue)
 	}
 
-	t.wg.Add(1)
+	buffer := <-t.buffer
 
 	select {
-	case t.buffer <- request:
+	case buffer.ch <- request:
 		Logger.Printf(
 			"Sending %s event [%s] to %s project: %d\n",
 			event.Level,
@@ -193,52 +199,67 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 			t.dsn.projectID,
 		)
 	default:
-		t.wg.Done()
 		Logger.Println("Event dropped due to transport buffer being full.")
 	}
+
+	t.buffer <- buffer
 }
 
 // Flush notifies when all the buffered events have been sent by returning `true`
 // or `false` if timeout was reached.
 func (t *HTTPTransport) Flush(timeout time.Duration) bool {
-	c := make(chan struct{})
+	toolate := time.After(timeout)
 
-	go func() {
-		t.flushSemaphore <- struct{}{}
-		t.wg.Wait()
-		close(c)
-		<-t.flushSemaphore
-	}()
+	var buf buffer
+	select {
+	case buf = <-t.buffer:
+	case <-toolate:
+		goto fail
+	}
+
+	close(buf.ch)
+	t.buffer <- buffer{
+		ch:   make(chan *http.Request, t.BufferSize),
+		done: make(chan struct{}),
+	}
 
 	select {
-	case <-c:
+	case <-buf.done:
 		Logger.Println("Buffer flushed successfully.")
 		return true
-	case <-time.After(timeout):
-		Logger.Println("Buffer flushing reached the timeout.")
-		return false
+	case <-toolate:
+		goto fail
 	}
+
+fail:
+	Logger.Println("Buffer flushing reached the timeout.")
+	return false
 }
 
 func (t *HTTPTransport) worker() {
-	for request := range t.buffer {
-		if time.Now().Before(t.disabledUntil) {
-			t.wg.Done()
-			continue
+	var i int
+	for buf := range t.buffer {
+		i++
+		Logger.Printf("Iteration #%d", i)
+		t.buffer <- buf
+		for request := range buf.ch {
+			if time.Now().Before(t.disabledUntil) {
+				continue
+			}
+
+			response, err := t.client.Do(request)
+
+			if err != nil {
+				Logger.Printf("There was an issue with sending an event: %v", err)
+			}
+
+			if response != nil && response.StatusCode == http.StatusTooManyRequests {
+				t.disabledUntil = time.Now().Add(retryAfter(time.Now(), response))
+				Logger.Printf("Too many requests, backing off till: %s\n", t.disabledUntil)
+			}
 		}
-
-		response, err := t.client.Do(request)
-
-		if err != nil {
-			Logger.Printf("There was an issue with sending an event: %v", err)
-		}
-
-		if response != nil && response.StatusCode == http.StatusTooManyRequests {
-			t.disabledUntil = time.Now().Add(retryAfter(time.Now(), response))
-			Logger.Printf("Too many requests, backing off till: %s\n", t.disabledUntil)
-		}
-
-		t.wg.Done()
+		Logger.Printf("Done with buf.ch #%d", i)
+		close(buf.done)
 	}
 }
 
