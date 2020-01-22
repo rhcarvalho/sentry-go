@@ -144,6 +144,7 @@ func main() {
 	}); err != nil {
 		panic(err)
 	}
+	defer sentry.Close(time.Second)
 
 	beforeSend()
 	configureScope()

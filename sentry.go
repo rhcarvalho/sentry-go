@@ -23,6 +23,26 @@ func Init(options ClientOptions) error {
 	return nil
 }
 
+type closer interface {
+	close(timeout time.Duration)
+}
+
+// Close shuts down the SDK and blocks until all outstanding events have been
+// sent or the timeout is reached. Unlike Flush, closing releases resources
+// associated with the SDK. Code should typically defer a call to Close after
+// Init.
+func Close(timeout time.Duration) {
+	hub := CurrentHub()
+	client := hub.Client()
+	if client == nil {
+		return
+	}
+	transport := client.Transport
+	if transport, ok := transport.(closer); ok {
+		transport.close(timeout)
+	}
+}
+
 // AddBreadcrumb records a new breadcrumb.
 //
 // The total number of breadcrumbs that can be recorded are limited by the

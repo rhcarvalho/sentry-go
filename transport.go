@@ -206,7 +206,11 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 	// the default case that is executed if sending on b.items would block. That
 	// is, the event is dropped if it cannot be sent immediately to the b.items
 	// channel (used as a queue).
-	b := <-t.buffer
+	b, ok := <-t.buffer
+	if !ok {
+		Logger.Println("Usage error: SendEvent call on closed HTTPTransport")
+		return
+	}
 
 	select {
 	case b.items <- request:
@@ -235,10 +239,20 @@ func (t *HTTPTransport) Flush(timeout time.Duration) bool {
 	// the only way b.done will be closed. If we do not wait, there is a
 	// possible execution flow in which b.done is never closed, and the only way
 	// out of Flush would be waiting for the timeout, which is undesired.
-	var b batch
+	var (
+		b  batch
+		ok bool
+	)
 	for {
 		select {
-		case b = <-t.buffer:
+		case b, ok = <-t.buffer:
+			if !ok {
+				Logger.Println("Usage error: Flush call on closed HTTPTransport")
+				// Note: neither true nor false seems like a good return value
+				// in this case. Since there cannot be pending events and
+				// timeout was not reached, return true.
+				return true
+			}
 			select {
 			case <-b.started:
 				goto started
@@ -305,6 +319,58 @@ func (t *HTTPTransport) worker() {
 		// Signal that processing of the batch is done.
 		close(b.done)
 	}
+}
+
+// close is like Flush, but also stops the worker to release resources.
+func (t *HTTPTransport) close(timeout time.Duration) {
+	toolate := time.After(timeout)
+
+	// Wait until processing the current batch has started or the timeout.
+	//
+	// We must wait until the worker has seen the current batch, because it is
+	// the only way b.done will be closed. If we do not wait, there is a
+	// possible execution flow in which b.done is never closed, and the only way
+	// out of Flush would be waiting for the timeout, which is undesired.
+	var (
+		b  batch
+		ok bool
+	)
+	for {
+		select {
+		case b, ok = <-t.buffer:
+			if !ok {
+				Logger.Println("Usage error: Close call on closed HTTPTransport")
+				return
+			}
+			select {
+			case <-b.started:
+				goto started
+			default:
+				t.buffer <- b
+			}
+		case <-toolate:
+			goto fail
+		}
+	}
+
+started:
+	// Signal that there won't be any more items in this batch, so that the
+	// worker inner loop can end.
+	close(b.items)
+	// Signal that there won't be new batches, worker can shut down.
+	close(t.buffer)
+
+	// Wait until the current batch is done or the timeout.
+	select {
+	case <-b.done:
+		Logger.Println("Buffer closed successfully.")
+		return
+	case <-toolate:
+		goto fail
+	}
+
+fail:
+	Logger.Println("Buffer closing reached the timeout.")
 }
 
 // ================================

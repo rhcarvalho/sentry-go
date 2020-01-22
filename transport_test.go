@@ -198,7 +198,19 @@ func (ts *testHTTPServer) EventCount() uint64 {
 }
 
 func (ts *testHTTPServer) Unblock() {
-	ts.ch <- true
+	select {
+	case ts.ch <- true:
+	default:
+	}
+}
+
+func (ts *testHTTPServer) EventCountMustBe(t *testing.T, n uint64) {
+	t.Helper()
+
+	count := ts.EventCount()
+	if count != n {
+		t.Fatalf("[SERVER] event count = %d, want %d", count, n)
+	}
 }
 
 func TestHTTPTransport(t *testing.T) {
@@ -234,15 +246,6 @@ func TestHTTPTransport(t *testing.T) {
 		}
 	}
 
-	serverEventCountMustBe := func(t *testing.T, n uint64) {
-		t.Helper()
-
-		count := server.EventCount()
-		if count != n {
-			t.Fatalf("[SERVER] event count = %d, want %d", count, n)
-		}
-	}
-
 	// Actual tests
 
 	testSendSingleEvent := func(t *testing.T) {
@@ -254,13 +257,13 @@ func TestHTTPTransport(t *testing.T) {
 
 		// Server is blocked waiting for us, right now count must not have
 		// changed yet.
-		serverEventCountMustBe(t, initialCount)
+		server.EventCountMustBe(t, initialCount)
 
 		// After unblocking the server, Flush must guarantee that the server
 		// event count increased by one.
 		server.Unblock()
 		transportMustFlush(t, id)
-		serverEventCountMustBe(t, initialCount+1)
+		server.EventCountMustBe(t, initialCount+1)
 	}
 	t.Run("SendSingleEvent", testSendSingleEvent)
 
@@ -271,7 +274,7 @@ func TestHTTPTransport(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			transportMustFlush(t, fmt.Sprintf("loop%d", i))
 		}
-		serverEventCountMustBe(t, initialCount)
+		server.EventCountMustBe(t, initialCount)
 	})
 
 	t.Run("ConcurrentSendAndFlush", func(t *testing.T) {
