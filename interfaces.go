@@ -3,10 +3,12 @@ package sentry
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -102,16 +104,50 @@ func (r Request) FromHTTPRequest(request *http.Request) Request {
 	r.QueryString = request.URL.RawQuery
 
 	// Body
-	if request.Body != nil {
-		bodyBytes, err := ioutil.ReadAll(request.Body)
-		_ = request.Body.Close()
-		if err == nil {
-			// We have to restore original state of *request.Body
-			request.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-			r.Data = string(bodyBytes)
-		}
-	}
+	r.Data = XreadRequestBody(request, maxRequestBodySize)
+
 	return r
+}
+
+const maxRequestBodySize = 20 * 1024
+
+func XreadRequestBody(request *http.Request, maxSize int64) string {
+
+	var buf bytes.Buffer
+	written, err := io.CopyN(&buf, request.Body, maxSize+1)
+	// limitedReader := http.MaxBytesReader(nil, request.Body, maxSize)
+	// reader := io.TeeReader(limitedReader, &buf)
+	request.Body = readCloser{
+		Reader: io.MultiReader(&buf, request.Body),
+		Closer: request.Body,
+	}
+	if err == io.EOF {
+		fmt.Fprintf(os.Stderr, "!!! ignored %v\n", err)
+		err = nil
+	}
+	if written > maxSize {
+		fmt.Fprintf(os.Stderr, "!!! original err: %v\n", err)
+		err = errors.New("too large body")
+	}
+	if err != nil {
+		// TODO: set _meta information in the Sentry Request Payload to indicate
+		// why the request body is missing.
+		fmt.Fprintf(os.Stderr, "!!! err: %s\n", err)
+		fmt.Fprintf(os.Stderr, "!!! readRequestBody: %s\n", err)
+		fmt.Fprintf(os.Stderr, "!!! read: %q\n", buf.String())
+		fmt.Fprintf(os.Stderr, "!!! written: %d\n", written)
+
+		// Do not send partial data when we hit a read error. We want to avoid
+		// sending truncated payloads that can affect scrubbing PII.
+		return ""
+	}
+	return buf.String()
+}
+
+// readCloser combines an io.Reader and an io.Closer to implement io.ReadCloser.
+type readCloser struct {
+	io.Reader
+	io.Closer
 }
 
 // https://docs.sentry.io/development/sdk-dev/event-payloads/exception/
