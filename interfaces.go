@@ -3,9 +3,9 @@ package sentry
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -114,28 +114,31 @@ const maxRequestBodySize = 20 * 1024
 func XreadRequestBody(request *http.Request, maxSize int64) string {
 
 	var buf bytes.Buffer
-	written, err := io.CopyN(&buf, request.Body, maxSize+1)
-	// limitedReader := http.MaxBytesReader(nil, request.Body, maxSize)
-	// reader := io.TeeReader(limitedReader, &buf)
+	// written, err := io.CopyN(&buf, request.Body, maxSize+1)
+	limitedReader := http.MaxBytesReader(nil, request.Body, maxSize)
+	reader := io.TeeReader(limitedReader, &buf)
 	request.Body = readCloser{
 		Reader: io.MultiReader(&buf, request.Body),
 		Closer: request.Body,
 	}
-	if err == io.EOF {
-		fmt.Fprintf(os.Stderr, "!!! ignored %v\n", err)
-		err = nil
-	}
-	if written > maxSize {
-		fmt.Fprintf(os.Stderr, "!!! original err: %v\n", err)
-		err = errors.New("too large body")
-	}
+
+	_, err := ioutil.ReadAll(reader)
+
+	// if err == io.EOF {
+	// 	fmt.Fprintf(os.Stderr, "!!! ignored %v\n", err)
+	// 	err = nil
+	// }
+	// if written > maxSize {
+	// 	fmt.Fprintf(os.Stderr, "!!! original err: %v\n", err)
+	// 	err = errors.New("too large body")
+	// }
 	if err != nil {
 		// TODO: set _meta information in the Sentry Request Payload to indicate
 		// why the request body is missing.
 		fmt.Fprintf(os.Stderr, "!!! err: %s\n", err)
 		fmt.Fprintf(os.Stderr, "!!! readRequestBody: %s\n", err)
 		fmt.Fprintf(os.Stderr, "!!! read: %q\n", buf.String())
-		fmt.Fprintf(os.Stderr, "!!! written: %d\n", written)
+		// fmt.Fprintf(os.Stderr, "!!! written: %d\n", written)
 
 		// Do not send partial data when we hit a read error. We want to avoid
 		// sending truncated payloads that can affect scrubbing PII.
