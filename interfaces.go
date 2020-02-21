@@ -104,18 +104,21 @@ func (r Request) FromHTTPRequest(request *http.Request) Request {
 	r.QueryString = request.URL.RawQuery
 
 	// Body
-	r.Data = XreadRequestBody(request, maxRequestBodySize)
+	r.Data = string(XreadRequestBody(request, maxRequestBodySize))
 
 	return r
 }
 
 const maxRequestBodySize = 20 * 1024
 
-func XreadRequestBody(request *http.Request, maxSize int64) string {
+func XreadRequestBody(request *http.Request, maxBytes int64) []byte {
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
 
 	var buf bytes.Buffer
 	// written, err := io.CopyN(&buf, request.Body, maxSize+1)
-	limitedReader := http.MaxBytesReader(nil, request.Body, maxSize)
+	limitedReader := http.MaxBytesReader(nil, request.Body, maxBytes)
 	reader := io.TeeReader(limitedReader, &buf)
 	request.Body = readCloser{
 		Reader: io.MultiReader(&buf, request.Body),
@@ -142,9 +145,9 @@ func XreadRequestBody(request *http.Request, maxSize int64) string {
 
 		// Do not send partial data when we hit a read error. We want to avoid
 		// sending truncated payloads that can affect scrubbing PII.
-		return ""
+		return nil
 	}
-	return buf.String()
+	return buf.Bytes()
 }
 
 // readCloser combines an io.Reader and an io.Closer to implement io.ReadCloser.
