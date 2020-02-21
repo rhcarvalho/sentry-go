@@ -2,7 +2,6 @@ package sentry
 
 import (
 	"bytes"
-	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -24,16 +23,18 @@ func TestRequestFromHTTPRequest(t *testing.T) {
 		req, err := http.NewRequest("POST", "/test/", payload)
 		assertEqual(t, err, nil)
 		assertNotEqual(t, req, nil)
-		sentryRequest := Request{}
-		sentryRequest = sentryRequest.FromHTTPRequest(req)
+		sentryRequest := NewRequest(req)
 		assertEqual(t, sentryRequest.Data, testPayload)
 
 		// Re-reading original *http.Request.Body
 		reqBody, err := ioutil.ReadAll(req.Body)
+		req.Body.Close()
 		assertEqual(t, err, nil)
 		assertEqual(t, string(reqBody), testPayload)
 	})
 }
+
+// TODO test GET request, no body
 
 func TestReadRequestBody(t *testing.T) {
 
@@ -65,25 +66,27 @@ func (v readRequestBodyInput) Generate(r *rand.Rand, size int) reflect.Value {
 	return reflect.ValueOf(v)
 }
 
-func testReadRequestBody(t *testing.T, in readRequestBodyInput) {
+func testRequestBody(t *testing.T, payload []byte) {
+
 	// Prepare
 
-	payload, maxBytes := in.payload, in.maxBytes
+	payload := in.payload
 	req := httptest.NewRequest("POST", "/", bytes.NewReader(payload))
 
-	// 1. Emulate what the SDK does in FromHTTPRequest.
-	limitedBody := readRequestBody(req, maxBytes)
+	// 1. Emulate what the SDK does when it sees an HTTP request.
+	r := newRequest(req, maxBytes)
 
-	// 2. Emulate what a SDK user would do in an HTTP handler: read the entire
-	// request Body (not necessarily into a buffer; could be for instance while
-	// decoding JSON input).
-	var buf bytes.Buffer
-	_, err := io.Copy(&buf, req.Body)
+	// 2. Emulate what an SDK user would do in their HTTP handler: read the
+	// entire request body (not necessarily into a buffer; could be for instance
+	// decoding JSON input, or streaming to disk or another network endpoint).
+	finalBody, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		panic(err)
 	}
 
-	finalBody := buf.Bytes()
+	// 3. Read what is available to the SDK on error, a limited prefix of the
+	// original payload.
+	limitedBody := r.body.Bytes()
 
 	// Check Invariants
 

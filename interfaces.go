@@ -72,11 +72,18 @@ type Request struct {
 	Headers     map[string]string `json:"headers,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 
-	bodyReader io.Reader
+	body interface {
+		Bytes() []byte
+		Overflow() bool
+	}
 }
 
 // NewRequest returns a new Sentry Request referencing the given http.Request.
 func NewRequest(r *http.Request) *Request {
+	return newRequest(r, maxRequestBodyBytes)
+}
+
+func newRequest(r *http.Request, maxBodyBytes int) *Request {
 	// URL
 	protocol := schemeHTTP
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
@@ -85,7 +92,7 @@ func NewRequest(r *http.Request) *Request {
 	url := fmt.Sprintf("%s://%s%s", protocol, r.Host, r.URL.Path)
 
 	// Body
-	buf := &limitedBuffer{Capacity: maxRequestBodySize}
+	buf := &limitedBuffer{Capacity: maxBodyBytes}
 	r.Body = readCloser{
 		Reader: io.TeeReader(r.Body, buf),
 		Closer: r.Body,
@@ -123,7 +130,7 @@ func NewRequest(r *http.Request) *Request {
 	}
 }
 
-const maxRequestBodySize = 20 * 1024
+const maxRequestBodyBytes = 20 * 1024
 
 func readRequestBody(request *http.Request, maxBytes int) []byte {
 	if maxBytes < 0 {
@@ -168,20 +175,24 @@ type limitedBuffer struct {
 	Capacity int
 
 	bytes.Buffer
-	Overflow bool
+	overflow bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (n int, err error) {
 	// Silently ignore writes after overflow.
-	if b.Overflow {
+	if b.overflow {
 		return 0, nil
 	}
 	left := b.Capacity - b.Len()
 	if len(p) > left {
-		b.Overflow = true
+		b.overflow = true
 		p = p[:left]
 	}
 	return b.Buffer.Write(p)
+}
+
+func (b *limitedBuffer) Overflow() bool {
+	return b.overflow
 }
 
 // readCloser combines an io.Reader and an io.Closer to implement io.ReadCloser.
