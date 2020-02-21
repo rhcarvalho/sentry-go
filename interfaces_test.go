@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
-	"math"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -15,22 +14,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
-
-type readRequestBodyInput struct {
-	payload  []byte
-	maxBytes int64
-}
-
-// Generate implements quick.Generator.
-func (v readRequestBodyInput) Generate(r *rand.Rand, size int) reflect.Value {
-	x, ok := quick.Value(reflect.TypeOf([]byte(nil)), r)
-	if !ok {
-		panic("unreachable")
-	}
-	v.payload = x.Interface().([]byte)
-	v.maxBytes = -1 + int64(rand.NewZipf(r, 1.01, 1+float64(len(v.payload)), math.MaxInt64).Uint64())
-	return reflect.ValueOf(v)
-}
 
 func TestRequestFromHTTPRequest(t *testing.T) {
 
@@ -53,6 +36,7 @@ func TestRequestFromHTTPRequest(t *testing.T) {
 }
 
 func TestReadRequestBody(t *testing.T) {
+
 	f := f(t)
 	err := quick.Check(f, nil)
 	if err != nil {
@@ -64,16 +48,35 @@ func TestReadRequestBody(t *testing.T) {
 	}
 }
 
+type readRequestBodyInput struct {
+	payload  []byte
+	maxBytes int
+}
+
+// Generate implements quick.Generator. Returns a random payload of random size
+// and random maxBytes within a range based on the payload size.
+func (v readRequestBodyInput) Generate(r *rand.Rand, size int) reflect.Value {
+	x, ok := quick.Value(reflect.TypeOf(v.payload), r)
+	if !ok {
+		panic("unreachable")
+	}
+	v.payload = x.Interface().([]byte)
+	v.maxBytes = -10 + r.Intn(len(v.payload)+10) // maxBytes in [-10, 10)
+	return reflect.ValueOf(v)
+}
+
 func testReadRequestBody(t *testing.T, in readRequestBodyInput) {
 	// Prepare
+
 	payload, maxBytes := in.payload, in.maxBytes
-
-	originalBody := payload
-
 	req := httptest.NewRequest("POST", "/", bytes.NewReader(payload))
 
-	limitedBody := XreadRequestBody(req, maxBytes)
+	// 1. Emulate what the SDK does in FromHTTPRequest.
+	limitedBody := readRequestBody(req, maxBytes)
 
+	// 2. Emulate what a SDK user would do in an HTTP handler: read the entire
+	// request Body (not necessarily into a buffer; could be for instance while
+	// decoding JSON input).
 	var buf bytes.Buffer
 	_, err := io.Copy(&buf, req.Body)
 	if err != nil {
@@ -84,15 +87,25 @@ func testReadRequestBody(t *testing.T, in readRequestBodyInput) {
 
 	// Check Invariants
 
-	if diff := cmp.Diff(originalBody, finalBody); diff != "" {
+	// 1. Reading the body after a call to readRequestBody should match the
+	// original payload.
+	if diff := cmp.Diff(payload, finalBody); diff != "" {
 		t.Errorf("Request body mismatch on second read (-want +got):\n%s", diff)
 	}
-	wantLen := max(min(int64(len(originalBody)), maxBytes), 0)
-	gotLen := int64(len(limitedBody))
+
+	// 2. readRequestBody reads at most maxBytes. If the payload doesn't fit
+	// within that limit, it discards the body entirely instead of truncating.
+	// That is to avoid cases like sending a truncated partial should either
+	// return the
+	// ???
+	wantLen := max(min(len(payload), maxBytes), 0)
+	gotLen := len(limitedBody)
 	if diff := cmp.Diff(wantLen, gotLen); diff != "" {
 		t.Errorf("Limited request body length mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(originalBody[:len(limitedBody)], limitedBody, cmpopts.EquateEmpty()); diff != "" {
+
+	// 3. ???
+	if diff := cmp.Diff(payload[:len(limitedBody)], limitedBody, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("Limited request body mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -109,14 +122,14 @@ func f(t *testing.T) func(in readRequestBodyInput) bool {
 	}
 }
 
-func min(a, b int64) int64 {
+func min(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-func max(a, b int64) int64 {
+func max(a, b int) int {
 	if a > b {
 		return a
 	}

@@ -71,54 +71,68 @@ type Request struct {
 	Cookies     string            `json:"cookies,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
+
+	bodyReader io.Reader
 }
 
-func (r Request) FromHTTPRequest(request *http.Request) Request {
-	// Method
-	r.Method = request.Method
-
+// NewRequest returns a new Sentry Request referencing the given http.Request.
+func NewRequest(r *http.Request) *Request {
 	// URL
 	protocol := schemeHTTP
-	if request.TLS != nil || request.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		protocol = schemeHTTPS
 	}
-	r.URL = fmt.Sprintf("%s://%s%s", protocol, request.Host, request.URL.Path)
-
-	// Headers
-	headers := make(map[string]string, len(request.Header))
-	for k, v := range request.Header {
-		headers[k] = strings.Join(v, ",")
-	}
-	headers["Host"] = request.Host
-	r.Headers = headers
-
-	// Cookies
-	r.Cookies = request.Header.Get("Cookie")
-
-	// Env
-	if addr, port, err := net.SplitHostPort(request.RemoteAddr); err == nil {
-		r.Env = map[string]string{"REMOTE_ADDR": addr, "REMOTE_PORT": port}
-	}
-
-	// QueryString
-	r.QueryString = request.URL.RawQuery
+	url := fmt.Sprintf("%s://%s%s", protocol, r.Host, r.URL.Path)
 
 	// Body
-	r.Data = string(XreadRequestBody(request, maxRequestBodySize))
+	buf := &limitedBuffer{Capacity: maxRequestBodySize}
+	r.Body = readCloser{
+		Reader: io.TeeReader(r.Body, buf),
+		Closer: r.Body,
+	}
 
-	return r
+	// Headers
+	headers := make(map[string]string, len(r.Header))
+	for k, v := range r.Header {
+		headers[k] = strings.Join(v, ",")
+	}
+	headers["Host"] = r.Host
+
+	// Env
+	var env map[string]string
+	if addr, port, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		env = map[string]string{"REMOTE_ADDR": addr, "REMOTE_PORT": port}
+	}
+
+	return &Request{
+		URL:    url,
+		Method: r.Method,
+		// Data is to be populated later from bodyReader. This allows NewRequest
+		// to return without blocking; not influenced by slow network reads.
+		Data:        "",
+		bodyReader:  buf,
+		QueryString: r.URL.RawQuery,
+		// Cookies are left to be parsed server-side by Sentry.
+		// We read only the first Cookie header because:
+		// https://tools.ietf.org/html/rfc6265#section-5.4
+		// When the user agent generates an HTTP request, the user agent MUST
+		// NOT attach more than one Cookie header field.
+		Cookies: r.Header.Get("Cookie"),
+		Headers: headers,
+		Env:     env,
+	}
 }
 
 const maxRequestBodySize = 20 * 1024
 
-func XreadRequestBody(request *http.Request, maxBytes int64) []byte {
+func readRequestBody(request *http.Request, maxBytes int) []byte {
 	if maxBytes < 0 {
 		maxBytes = 0
 	}
 
 	var buf bytes.Buffer
 	// written, err := io.CopyN(&buf, request.Body, maxSize+1)
-	limitedReader := http.MaxBytesReader(nil, request.Body, maxBytes)
+	limitedReader := http.MaxBytesReader(nil, request.Body, int64(maxBytes))
 	reader := io.TeeReader(limitedReader, &buf)
 	request.Body = readCloser{
 		Reader: io.MultiReader(&buf, request.Body),
@@ -148,6 +162,26 @@ func XreadRequestBody(request *http.Request, maxBytes int64) []byte {
 		return nil
 	}
 	return buf.Bytes()
+}
+
+type limitedBuffer struct {
+	Capacity int
+
+	bytes.Buffer
+	Overflow bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (n int, err error) {
+	// Silently ignore writes after overflow.
+	if b.Overflow {
+		return 0, nil
+	}
+	left := b.Capacity - b.Len()
+	if len(p) > left {
+		b.Overflow = true
+		p = p[:left]
+	}
+	return b.Buffer.Write(p)
 }
 
 // readCloser combines an io.Reader and an io.Closer to implement io.ReadCloser.
