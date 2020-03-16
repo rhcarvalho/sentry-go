@@ -154,6 +154,10 @@ func NewEvent() *Event {
 	return &event
 }
 
+func (e *Event) MarshalJSON() ([]byte, error) {
+	return getRequestBodyFromEvent(e)
+}
+
 type Thread struct {
 	ID            string      `json:"id,omitempty"`
 	Name          string      `json:"name,omitempty"`

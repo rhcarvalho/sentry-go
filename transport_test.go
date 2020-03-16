@@ -21,7 +21,7 @@ const enhancedEvent = "{\"extra\":{\"info\":\"Original event couldn't be marshal
 	"\"message\":\"mkey\",\"sdk\":{},\"user\":{}}"
 
 func TestGetRequestBodyFromEventValid(t *testing.T) {
-	body := getRequestBodyFromEvent(&Event{
+	body, _ := getRequestBodyFromEvent(&Event{
 		Message: "mkey",
 	})
 
@@ -34,7 +34,7 @@ func TestGetRequestBodyFromEventValid(t *testing.T) {
 }
 
 func TestGetRequestBodyFromEventInvalidBreadcrumbsField(t *testing.T) {
-	body := getRequestBodyFromEvent(&Event{
+	body, _ := getRequestBodyFromEvent(&Event{
 		Message: "mkey",
 		Breadcrumbs: []*Breadcrumb{{
 			Data: map[string]interface{}{
@@ -52,7 +52,7 @@ func TestGetRequestBodyFromEventInvalidBreadcrumbsField(t *testing.T) {
 }
 
 func TestGetRequestBodyFromEventInvalidExtraField(t *testing.T) {
-	body := getRequestBodyFromEvent(&Event{
+	body, _ := getRequestBodyFromEvent(&Event{
 		Message: "mkey",
 		Extra: map[string]interface{}{
 			"wat": unserializableType{},
@@ -68,7 +68,7 @@ func TestGetRequestBodyFromEventInvalidExtraField(t *testing.T) {
 }
 
 func TestGetRequestBodyFromEventInvalidContextField(t *testing.T) {
-	body := getRequestBodyFromEvent(&Event{
+	body, _ := getRequestBodyFromEvent(&Event{
 		Message: "mkey",
 		Contexts: map[string]interface{}{
 			"wat": unserializableType{},
@@ -84,7 +84,7 @@ func TestGetRequestBodyFromEventInvalidContextField(t *testing.T) {
 }
 
 func TestGetRequestBodyFromEventMultipleInvalidFields(t *testing.T) {
-	body := getRequestBodyFromEvent(&Event{
+	body, _ := getRequestBodyFromEvent(&Event{
 		Message: "mkey",
 		Breadcrumbs: []*Breadcrumb{{
 			Data: map[string]interface{}{
@@ -108,7 +108,7 @@ func TestGetRequestBodyFromEventMultipleInvalidFields(t *testing.T) {
 }
 
 func TestGetRequestBodyFromEventCompletelyInvalid(t *testing.T) {
-	body := getRequestBodyFromEvent(&Event{
+	body, _ := getRequestBodyFromEvent(&Event{
 		Exception: []Exception{{
 			Stacktrace: &Stacktrace{
 				Frames: []Frame{{

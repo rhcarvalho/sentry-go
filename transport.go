@@ -64,10 +64,10 @@ func retryAfter(now time.Time, r *http.Response) time.Duration {
 	return defaultRetryAfter
 }
 
-func getRequestBodyFromEvent(event *Event) []byte {
-	body, err := json.Marshal(event)
+func getRequestBodyFromEvent(event *Event) ([]byte, error) {
+	body, err := json.Marshal(event) // FIXME: infinite mutual recursion
 	if err == nil {
-		return body
+		return body, nil
 	}
 
 	partialMarshallMessage := "Original event couldn't be marshalled. Succeeded by stripping the data " +
@@ -81,7 +81,7 @@ func getRequestBodyFromEvent(event *Event) []byte {
 	body, err = json.Marshal(event)
 	if err == nil {
 		Logger.Println(partialMarshallMessage)
-		return body
+		return body, nil
 	}
 
 	// This should _only_ happen when Event.Exception[0].Stacktrace.Frames[0].Vars is unserializable
@@ -89,7 +89,7 @@ func getRequestBodyFromEvent(event *Event) []byte {
 	// Juuust in case something, somehow goes utterly wrong.
 	Logger.Println("Event couldn't be marshalled, even with stripped contextual data. Skipping delivery. " +
 		"Please notify the SDK owners with possibly broken payload.")
-	return nil
+	return nil, err
 }
 
 // ================================
@@ -187,15 +187,15 @@ func (t *HTTPTransport) SendEvent(event *Event) {
 		return
 	}
 
-	body := getRequestBodyFromEvent(event)
-	if body == nil {
+	body, err := event.MarshalJSON()
+	if err != nil {
 		return
 	}
 
 	request, _ := http.NewRequest(
 		http.MethodPost,
 		t.dsn.StoreAPIURL().String(),
-		bytes.NewBuffer(body),
+		bytes.NewReader(body),
 	)
 
 	for headerKey, headerValue := range t.dsn.RequestHeaders() {
@@ -386,15 +386,15 @@ func (t *HTTPSyncTransport) SendEvent(event *Event) {
 		return
 	}
 
-	body := getRequestBodyFromEvent(event)
-	if body == nil {
+	body, err := event.MarshalJSON()
+	if err != nil {
 		return
 	}
 
 	request, _ := http.NewRequest(
 		http.MethodPost,
 		t.dsn.StoreAPIURL().String(),
-		bytes.NewBuffer(body),
+		bytes.NewReader(body),
 	)
 
 	for headerKey, headerValue := range t.dsn.RequestHeaders() {
