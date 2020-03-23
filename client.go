@@ -305,33 +305,53 @@ func (client *Client) eventFromMessage(message string, level Level) *Event {
 	return event
 }
 
+// maxErrorDepth is the maximum number of errors reported in a chain of errors.
+// This protects the SDK from an arbitrarily long chain of wrapped errors.
+const maxErrorDepth = 100
+
 func (client *Client) eventFromException(exception error, level Level) *Event {
-	if exception == nil {
-		exception = usageError{fmt.Errorf("%s called with nil error", callerFunctionName())}
+	err := exception
+	if err == nil {
+		err = usageError{fmt.Errorf("%s called with nil error", callerFunctionName())}
 	}
 
-	stacktrace := ExtractStacktrace(exception)
+	var localStacktrace *Stacktrace
 
-	if stacktrace == nil {
-		stacktrace = NewStacktrace()
-	}
+	event := &Event{Level: level}
 
-	cause := exception
-	// Handle wrapped errors for github.com/pingcap/errors and github.com/pkg/errors
-	if ex, ok := exception.(interface{ Cause() error }); ok {
-		if c := ex.Cause(); c != nil {
-			cause = c
+	for i := 0; i < maxErrorDepth && err != nil; i++ {
+		stacktrace := ExtractStacktrace(err)
+		if stacktrace == nil {
+			if localStacktrace == nil {
+				localStacktrace = NewStacktrace()
+			}
+			stacktrace = localStacktrace
+		}
+
+		event.Exception = append(event.Exception, Exception{
+			Value:      err.Error(),
+			Type:       reflect.TypeOf(err).String(),
+			Stacktrace: stacktrace,
+		})
+
+		if previous, ok := err.(interface{ Cause() error }); ok {
+			err = previous.Cause()
+		} else {
+			err = nil
 		}
 	}
+	// event.Exception should be sorted such that the most recent error is last.
+	reverse(event.Exception)
 
-	event := NewEvent()
-	event.Level = level
-	event.Exception = []Exception{{
-		Value:      cause.Error(),
-		Type:       reflect.TypeOf(cause).String(),
-		Stacktrace: stacktrace,
-	}}
 	return event
+}
+
+// reverse reverses the slice a in place.
+func reverse(a []Exception) {
+	for i := len(a)/2 - 1; i >= 0; i-- {
+		opp := len(a) - 1 - i
+		a[i], a[opp] = a[opp], a[i]
+	}
 }
 
 func (client *Client) processEvent(event *Event, hint *EventHint, scope EventModifier) *EventID {

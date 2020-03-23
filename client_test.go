@@ -74,15 +74,15 @@ func TestCaptureExceptionShouldNotFailWhenPassedNil(t *testing.T) {
 		Platform: "go",
 		Exception: []Exception{
 			{
-				Type:  "sentry.usageError",
-				Value: "CaptureException called with nil error",
+				Type:   "sentry.usageError",
+				Value:  "CaptureException called with nil error",
+				Module: "github.com/getsentry/sentry-go",
 			},
 		},
 	}
 	opts := cmp.Options{
 		cmpopts.IgnoreFields(Event{}, "EventID", "Sdk", "ServerName", "Timestamp"),
 		cmpopts.IgnoreTypes(&Stacktrace{}),
-		cmpopts.EquateEmpty(),
 	}
 	if diff := cmp.Diff(want, transport.lastEvent, opts); diff != "" {
 		t.Errorf("event mismatch (-want +got):\n%s", diff)
