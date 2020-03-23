@@ -334,9 +334,12 @@ func (client *Client) eventFromException(exception error, level Level) *Event {
 			Stacktrace: stacktrace,
 		})
 
-		if previous, ok := err.(interface{ Cause() error }); ok {
+		switch previous := err.(type) {
+		case interface{ Unwrap() error }:
+			err = previous.Unwrap()
+		case interface{ Cause() error }:
 			err = previous.Cause()
-		} else {
+		default:
 			err = nil
 		}
 	}
