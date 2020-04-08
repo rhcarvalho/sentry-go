@@ -332,6 +332,7 @@ func (client *Client) eventFromException(exception error, level Level) *Event {
 			Value:      err.Error(),
 			Type:       reflect.TypeOf(err).String(),
 			Stacktrace: stacktrace,
+			Module:     reflect.TypeOf(err).PkgPath(),
 		})
 
 		switch previous := err.(type) {

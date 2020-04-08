@@ -74,8 +74,9 @@ func TestCaptureExceptionShouldNotFailWhenPassedNil(t *testing.T) {
 		Platform: "go",
 		Exception: []Exception{
 			{
-				Type:  "sentry.usageError",
-				Value: "CaptureException called with nil error",
+				Type:   "sentry.usageError",
+				Value:  "CaptureException called with nil error",
+				Module: "github.com/getsentry/sentry-go",
 			},
 		},
 	}
