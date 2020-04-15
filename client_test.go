@@ -19,6 +19,9 @@ func TestNewClientAllowsEmptyDSN(t *testing.T) {
 	}
 
 	client.CaptureException(errors.New("custom error"), nil, &ScopeMock{})
+	if len(transport.lastEvent.Exception) != 1 {
+		t.Fatal("missing error in transport")
+	}
 	assertEqual(t, transport.lastEvent.Exception[0].Value, "custom error")
 }
 
@@ -312,6 +315,9 @@ func TestBeforeSendGetAccessToEventHint(t *testing.T) {
 	client, scope, transport := setupClientTest()
 	client.options.BeforeSend = func(event *Event, hint *EventHint) *Event {
 		if ex, ok := hint.OriginalException.(customComplexError); ok {
+			if len(event.Exception) != 1 {
+				t.Fatal("missing error in event")
+			}
 			event.Message = event.Exception[0].Value + " " + ex.AnswerToLife()
 		}
 		return event
