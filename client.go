@@ -170,6 +170,40 @@ type Client struct {
 
 // NewClient creates and returns an instance of Client configured using ClientOptions.
 func NewClient(options ClientOptions) (*Client, error) {
+	// TODO: all of the defaulting of the ClientOptions fields should be done
+	// here, such that after constructing a Client value, Client.Options()
+	// always reflect the current effective configuration.
+	//
+	// When Transport.Configure(options) is called, the Transport should always
+	// have ClientOptions.Transport point to itself. This is not true today when
+	// a Client value is created without an explicit Transport and a default
+	// value is provided in setupTransport (noopTransport or HTTPTransport).
+	//
+	// Similarly, Client.Options().SampleRate should be 1.0 by default, instead
+	// of temporarily changed in processEvent.
+
+	// The default error event sample rate for all SDKs is 1.0 (send all).
+	//
+	// In Go, the zero value (default) for float64 is 0.0, which means that
+	// constructing a client with NewClient(ClientOptions{}), or, equivalently,
+	// initializing the SDK with Init(ClientOptions{}) without an explicit
+	// SampleRate would drop all events.
+	//
+	// To retain the desired default behavior, we exceptionally flip SampleRate
+	// from 0.0 to 1.0 here. Setting the sample rate to 0.0 is not very useful
+	// anyway, and the same end result can be achieved in many other ways like
+	// not initializing the SDK, setting the DSN to the empty string or using an
+	// event processor that always returns nil.
+	//
+	// An alternative API could be such that default options don't need to be
+	// the same as Go's zero values, for example using the Functional Options
+	// pattern. That would either require a breaking change if we want to reuse
+	// the obvious NewClient name, or a new function as an alternative
+	// constructor.
+	if options.SampleRate == 0.0 {
+		options.SampleRate = 1.0
+	}
+
 	if options.Debug {
 		debugWriter := options.DebugWriter
 		if debugWriter == nil {
@@ -419,28 +453,6 @@ func (client *Client) processEvent(event *Event, hint *EventHint, scope EventMod
 	}
 
 	options := client.Options()
-
-	// The default error event sample rate for all SDKs is 1.0 (send all).
-	//
-	// In Go, the zero value (default) for float64 is 0.0, which means that
-	// constructing a client with NewClient(ClientOptions{}), or, equivalently,
-	// initializing the SDK with Init(ClientOptions{}) without an explicit
-	// SampleRate would drop all events.
-	//
-	// To retain the desired default behavior, we exceptionally flip SampleRate
-	// from 0.0 to 1.0 here. Setting the sample rate to 0.0 is not very useful
-	// anyway, and the same end result can be achieved in many other ways like
-	// not initializing the SDK, setting the DSN to the empty string or using an
-	// event processor that always returns nil.
-	//
-	// An alternative API could be such that default options don't need to be
-	// the same as Go's zero values, for example using the Functional Options
-	// pattern. That would either require a breaking change if we want to reuse
-	// the obvious NewClient name, or a new function as an alternative
-	// constructor.
-	if options.SampleRate == 0.0 {
-		options.SampleRate = 1.0
-	}
 
 	if !sample(options.SampleRate) {
 		Logger.Println("Event dropped due to SampleRate hit.")

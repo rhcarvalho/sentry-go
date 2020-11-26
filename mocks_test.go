@@ -22,15 +22,23 @@ func (scope *ScopeMock) ApplyToEvent(event *Event, hint *EventHint) *Event {
 }
 
 type TransportMock struct {
-	mu        sync.Mutex
-	events    []*Event
-	lastEvent *Event
+	mu            sync.Mutex
+	events        []*Event
+	lastEvent     *Event
+	clientOptions *ClientOptions
 }
 
-func (t *TransportMock) Configure(options ClientOptions) {}
+func (t *TransportMock) Configure(options ClientOptions) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.clientOptions = &options
+}
 func (t *TransportMock) SendEvent(event *Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if !sample(t.clientOptions.SampleRate) {
+		return
+	}
 	t.events = append(t.events, event)
 	t.lastEvent = event
 }

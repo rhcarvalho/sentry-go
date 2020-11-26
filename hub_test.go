@@ -324,9 +324,14 @@ func TestSetHubOnContextReturnsNewContext(t *testing.T) {
 func TestConcurrentHubClone(t *testing.T) {
 	const goroutineCount = 3
 
-	hub, client, _ := setupHubTest()
 	transport := &TransportMock{}
-	client.Transport = transport
+	client, err := NewClient(ClientOptions{
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := NewHub(client, NewScope())
 
 	var wg sync.WaitGroup
 	wg.Add(goroutineCount)
