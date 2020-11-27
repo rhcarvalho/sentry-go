@@ -2,11 +2,17 @@ package sentry
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func TraceIDFromHex(s string) TraceID {
@@ -77,5 +83,234 @@ func testMarshalJSONOmitEmptyParentSpanID(t *testing.T, v interface{}) {
 	}
 	if !bytes.Contains(b, []byte("parent_span_id")) {
 		t.Fatalf("missing parent_span_id: %s", b)
+	}
+}
+
+func TestStartSpan(t *testing.T) {
+	transport := &TransportMock{}
+	ctx := NewTestContext(ClientOptions{
+		Transport: transport,
+	})
+	op := "test.op"
+	transaction := "Test Transaction"
+	description := "A Description"
+	status := SpanStatusOK
+	parentSpanID := SpanIDFromHex("f00db33f")
+	sampled := SampledTrue
+	startTime := time.Now()
+	endTime := startTime.Add(3 * time.Second)
+	span := StartSpan(ctx, op,
+		TransactionName(transaction),
+		func(s *Span) {
+			s.Description = description
+			s.Status = status
+			s.ParentSpanID = parentSpanID
+			s.Sampled = sampled
+			s.StartTime = startTime
+			s.EndTime = endTime
+		},
+	)
+	span.Finish()
+
+	span.Description = "new description" // TODO delete
+	span.Op = "new op"
+	// span.SpanContext().ParentSpanID = ...
+	// span.Update(func(c *SpanContext) {
+	// 	c.Description = "foo"
+	// 	c.Op = "bar"
+	// 	// one problem with this style is setting ".hasSamplingDecision" to
+	// 	// distinguish sampled = (true, false, undefined)
+	// 	// a solution is that Sampled is not bool, but uint8 enum
+	// 	// SamplingUndecided(0, default), SamplingFalse(-1), SamplingTrue(1)
+	// })
+
+	// span.ToRawSpan().Description
+	// e := span.ToEvent() // figures out what's the root span and build a transaction event, returns the same result from any span of the tree
+	// assert(e.Type == transactionType)
+
+	SpanCheck{
+		Sampled:     sampled,
+		RecorderLen: 1,
+	}.Check(t, span)
+
+	// TODO calling Finish sets the span EndTime (and every span
+	// has StartTime set?)
+
+	events := transport.Events()
+	if got := len(events); got != 1 {
+		t.Fatalf("sent %d events, want 1", got)
+	}
+	want := &Event{ // TODO: complete this
+		Type:        transactionType,
+		Transaction: transaction,
+		Contexts: map[string]interface{}{
+			"trace": TraceContext{
+				TraceID:      "",
+				SpanID:       "",
+				ParentSpanID: parentSpanID.String(),
+				Op:           op,
+				Description:  description,
+				Status:       status,
+			},
+		},
+		Tags:      nil,
+		Extra:     nil, // TODO: Set Transaction.Data here?! Or in Contexts.Trace, or where else?
+		Timestamp: endTime,
+		StartTime: startTime,
+	}
+	if diff := cmp.Diff(want, events[0], cmp.FilterPath(func(p cmp.Path) bool {
+		if sf, ok := p.Index(-2).(cmp.StructField); ok {
+			return sf.Name() == "Contexts"
+		}
+		return false
+	}, cmpopts.IgnoreMapEntries(func(k string, v interface{}) bool {
+		return k == "device" || k == "os" || k == "runtime"
+	}))); diff != "" {
+		t.Fatalf("sent event mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestStartChild(t *testing.T) {
+	ctx := NewTestContext(ClientOptions{})
+	span := StartSpan(ctx, "top", TransactionName("Test Transaction"))
+	child := span.StartChild("child")
+	child.Finish()
+	span.Finish()
+
+	c := SpanCheck{
+		RecorderLen: 2,
+	}
+	c.Check(t, span)
+	c.Check(t, child)
+}
+
+func TestSpanFromContext(t *testing.T) {
+	// SpanFromContext always returns a non-nil value, such that you can use
+	// it without nil checks.
+	// When no span was in the context, the returned value is a no-op.
+	// Calling StartChild on the no-op creates a valid transaction.
+	// SpanFromContext(ctx).StartChild(...) === StartSpan(ctx, ...)
+
+	ctx := NewTestContext(ClientOptions{})
+	span := spanFromContext(ctx)
+
+	SpanCheck{
+		ZeroTraceID: true,
+		ZeroSpanID:  true,
+	}.Check(t, span)
+
+	// Should create a transaction
+	child := span.StartChild("top")
+	SpanCheck{
+		RecorderLen: 1,
+	}.Check(t, child)
+
+	// TODO: check behavior of Finishing sending transactions to Sentry
+}
+
+// testContextKey is used to store a value in a context so that we can check
+// that SDK operations on that context preserve the original context values.
+type testContextKey struct{}
+type testContextValue struct{}
+
+func NewTestContext(options ClientOptions) context.Context {
+	client, err := NewClient(options)
+	if err != nil {
+		panic(err)
+	}
+	hub := NewHub(client, NewScope())
+	ctx := context.WithValue(context.Background(), testContextKey{}, testContextValue{})
+	return SetHubOnContext(ctx, hub)
+}
+
+// A SpanCheck is a test helper describing span properties that can be checked
+// with the Check method.
+type SpanCheck struct {
+	Sampled     Sampled
+	ZeroTraceID bool
+	ZeroSpanID  bool
+	RecorderLen int
+}
+
+func (c SpanCheck) Check(t *testing.T, span *Span) {
+	t.Helper()
+
+	// Invariant: original context values are preserved
+	gotCtx := span.Context()
+	if _, ok := gotCtx.Value(testContextKey{}).(testContextValue); !ok {
+		t.Errorf("original context value lost")
+	}
+	// Invariant: SpanFromContext(span.Context) == span
+	if spanFromContext(gotCtx) != span {
+		t.Errorf("span not in its context")
+	}
+
+	if got := span.TraceID == zeroTraceID; got != c.ZeroTraceID {
+		want := "zero"
+		if !c.ZeroTraceID {
+			want = "non-" + want
+		}
+		t.Errorf("got TraceID = %x, want %s", span.TraceID, want)
+	}
+	if got := span.SpanID == zeroSpanID; got != c.ZeroSpanID {
+		want := "zero"
+		if !c.ZeroSpanID {
+			want = "non-" + want
+		}
+		t.Errorf("got SpanID = %x, want %s", span.SpanID, want)
+	}
+	if got, want := span.Sampled, c.Sampled; got != want {
+		t.Errorf("got Sampled = %v, want %v", got, want)
+	}
+
+	if got, want := len(span.spanRecorder().spans), c.RecorderLen; got != want {
+		t.Errorf("got %d spans in recorder, want %d", got, want)
+	}
+}
+
+func TestToSentryTrace(t *testing.T) {
+	tests := []struct {
+		span *Span
+		want string
+	}{
+		{&Span{}, "00000000000000000000000000000000-0000000000000000"},
+		{&Span{Sampled: SampledTrue}, "00000000000000000000000000000000-0000000000000000-1"},
+		{&Span{Sampled: SampledFalse}, "00000000000000000000000000000000-0000000000000000-0"},
+		{&Span{TraceID: TraceID{1}}, "01000000000000000000000000000000-0000000000000000"},
+		{&Span{SpanID: SpanID{1}}, "00000000000000000000000000000000-0100000000000000"},
+	}
+	for _, tt := range tests {
+		if got := tt.span.ToSentryTrace(); got != tt.want {
+			t.Errorf("got %q, want %q", got, tt.want)
+		}
+	}
+}
+
+func TestContinueSpanFromRequest(t *testing.T) {
+	traceID := TraceIDFromHex("bc6d53f15eb88f4320054569b8c553d4")
+	spanID := SpanIDFromHex("b72fa28504b07285")
+
+	for _, sampled := range []Sampled{SampledTrue, SampledFalse, SampledUndefined} {
+		sampled := sampled
+		t.Run(sampled.String(), func(t *testing.T) {
+			var s Span
+			hkey := http.CanonicalHeaderKey("sentry-trace")
+			hval := (&Span{
+				TraceID: traceID,
+				SpanID:  spanID,
+				Sampled: sampled,
+			}).ToSentryTrace()
+			header := http.Header{hkey: []string{hval}}
+			ContinueFromRequest(&http.Request{Header: header})(&s)
+			if s.TraceID != traceID {
+				t.Errorf("got %q, want %q", s.TraceID, traceID)
+			}
+			if s.ParentSpanID != spanID {
+				t.Errorf("got %q, want %q", s.ParentSpanID, spanID)
+			}
+			if s.Sampled != sampled {
+				t.Errorf("got %q, want %q", s.Sampled, sampled)
+			}
+		})
 	}
 }

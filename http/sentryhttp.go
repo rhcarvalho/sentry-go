@@ -83,11 +83,18 @@ func (h *Handler) handle(handler http.Handler) http.HandlerFunc {
 		hub := sentry.GetHubFromContext(ctx)
 		if hub == nil {
 			hub = sentry.CurrentHub().Clone()
+			ctx = sentry.SetHubOnContext(ctx, hub)
 		}
+		span := sentry.StartSpan(ctx, "http.server",
+			sentry.TransactionName(r.URL.Path),
+			sentry.ContinueFromRequest(r),
+		)
+		defer span.Finish()
+		r = r.WithContext(span.Context())
 		hub.Scope().SetRequest(r)
-		ctx = sentry.SetHubOnContext(ctx, hub)
 		defer h.recoverWithSentry(hub, r)
-		handler.ServeHTTP(w, r.WithContext(ctx))
+		// TODO: use custom response writer to intercept response HTTP status, etc
+		handler.ServeHTTP(w, r)
 	}
 }
 

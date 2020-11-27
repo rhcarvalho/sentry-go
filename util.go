@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 func uuid() string {
@@ -20,11 +21,15 @@ func uuid() string {
 }
 
 func fileExists(fileName string) bool {
-	if _, err := os.Stat(fileName); err != nil {
-		return false
-	}
+	_, err := os.Stat(fileName)
+	return err == nil
+}
 
-	return true
+// monotonicTimeSince replaces uses of time.Now() to take into account the
+// monotonic clock reading stored in start, such that duration = end - start is
+// unaffected by changes in the system wall clock.
+func monotonicTimeSince(start time.Time) (end time.Time) {
+	return start.Add(time.Since(start))
 }
 
 //nolint: deadcode, unused
