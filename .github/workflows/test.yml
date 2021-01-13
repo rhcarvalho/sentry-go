@@ -9,7 +9,7 @@ jobs:
     steps:
     - name: List Installed Go Versions
       run: |
-      type go
-      go version
-      go env
-      ls -d /usr/local/*
+        type go
+        go version
+        go env
+        ls -d /usr/local/*
