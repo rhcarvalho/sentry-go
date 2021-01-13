@@ -8,4 +8,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - name: List Installed Go Versions
-      run: ls -d /usr/local/go*
+      run: |
+      type go
+      go version
+      go env
+      ls -d /usr/local/*
