@@ -96,7 +96,7 @@ jobs:
       - name: Compute Dependencies
         id: go-deps
         run: |
-          echo "::set-output name=pkgs::$(go list -test -deps -f '{{if and .DepOnly (not .Standard)}}{{.ImportPath}}{{end}}' ./... | jq --raw-input --slurp 'split("\n") | map(select(. != ""))' )"
+          echo "::set-output name=pkgs::'$(go list -test -deps -f '{{if and .DepOnly (not .Standard)}}{{.ImportPath}}{{end}}' ./... | jq --raw-input --slurp 'split("\n") | map(select(. != ""))' )'"
       - name: Download Dependencies
       #   run: go get -d -v "${{ steps.go-deps.outputs.pkgs }}"
       # - name: Update Dependencies
