@@ -100,7 +100,8 @@ jobs:
       - name: Download Dependencies
       #   run: go get -d -v "${{ steps.go-deps.outputs.pkgs }}"
       # - name: Update Dependencies
-        run: go get -d -u -v ${{ fromJSON(steps.go-deps.outputs.pkgs) }}
+        run: go get -t -d -u -v ./...
+        # ${{ fromJSON(steps.go-deps.outputs.pkgs) }}
       - name: Build
         run: go build ./...
       - name: Vet
