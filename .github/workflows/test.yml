@@ -1,10 +1,10 @@
 name: Test
 on:
   push:
-    branches:
-      - master
-      - release/**
-  pull_request:
+  #   branches:
+  #     - master
+  #     - release/**
+  # pull_request:
 permissions:
   contents: read
 defaults:
@@ -88,13 +88,17 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: "1"
-      - name: Remove unsupported code
+      - name: Remove Unsupported Code
         run: |
           # Iris requires Module mode, therefore we delete the relevant code to
           # skip testing it in GOPATH mode.
           rm -vrf ./iris/ ./example/iris/
-      - name: Download dependencies
-        run: go get -d -t -u -v ./...
+      - name: Compute Dependencies
+        id: go-deps
+        run: |
+          echo "::set-output name=pkgs::$(go list -test -deps -f '{{if and .DepOnly (not .Standard)}}{{.ImportPath}}{{end}}' ./...)"
+      - name: Download Dependencies
+        run: go get -d -u -v ${{ steps.go-deps.outputs.pkgs }}
       - name: Build
         run: go build ./...
       - name: Vet
