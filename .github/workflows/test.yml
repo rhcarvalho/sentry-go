@@ -93,14 +93,10 @@ jobs:
           # Iris requires Module mode, therefore we delete the relevant code to
           # skip testing it in GOPATH mode.
           rm -vrf ./iris/ ./example/iris/
-      - name: Compute Dependencies
-        id: go-deps
-        run: |
-          echo "::set-output name=pkgs::'$(go list -test -deps -f '{{if and .DepOnly (not .Standard)}}{{.ImportPath}}{{end}}' ./... | jq --raw-input --slurp 'split("\n") | map(select(. != ""))' )'"
       - name: Download Dependencies
-      #   run: go get -d -v "${{ steps.go-deps.outputs.pkgs }}"
-      # - name: Update Dependencies
-        run: go get -d -u -v ${{ join(fromJSON(steps.go-deps.outputs.pkgs), ' ') }}
+        run: >
+          go list -test -deps -f '{{if and .DepOnly (not .Standard)}}{{.ImportPath}}{{end}}' ./... |
+          xargs go get -d -u -v
       - name: Build
         run: go build ./...
       - name: Vet
